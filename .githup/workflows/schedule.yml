@@ -1,0 +1,39 @@
+name: Email Automation Scheduler
+
+This workflow runs automatically every 5 minutes using cron syntax.
+on:
+schedule:
+# '*/5 * * * ' means run at minute 0, 5, 10, 15, ..., 55 of every hour, every day.
+- cron: '/5 * * * *'
+
+Allows you to manually trigger the workflow from the GitHub Actions tab
+workflow_dispatch:
+
+jobs:
+run-email-agent:
+# Runs the job on a standard Ubuntu runner provided by GitHub
+runs-on: ubuntu-latest
+
+# Define environment variables loaded from the secrets you just created
+env:
+  TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
+  EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
+  EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+
+steps:
+  - name: Checkout Code
+    uses: actions/checkout@v4 # Get your repository files
+    
+  - name: Set up Python
+    uses: actions/setup-python@v5
+    with:
+      python-version: '3.11' # Use a modern Python version
+
+  - name: Install Dependencies
+    # Installs the 'requests' library defined in requirements.txt
+    run: |
+      pip install -r requirements.txt
+
+  - name: Run Email Agent
+    # Executes your main Python script (email_agent.py)
+    run: python email_agent.py
