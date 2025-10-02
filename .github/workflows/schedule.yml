@@ -3,7 +3,7 @@ name: Email Automation Scheduler
 # This sets the trigger to run the workflow automatically every 5 minutes
 on:
   schedule:
-    - cron: ' */1 * * * * '  # Every 1 minutes
+    - cron: '* * * * *'   # Every 1 minutes
   workflow_dispatch:       # Allows manual trigger from GitHub UI
 
 jobs:
