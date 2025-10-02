@@ -18,11 +18,24 @@ EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD") # Your 16-character App Passwo
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 465
 IMAP_SERVER = "imap.gmail.com"
-LLM_MODEL = "mistralai/Mistral-7B-Instruct-v0.2"
+# CHANGED MODEL for faster response (Mixtral-8x7B is highly optimized for chat)
+LLM_MODEL = "mistralai/Mixtral-8x7B-Instruct-v0.1" 
 
 # --- User-Defined Logic (Customize These!) ---
-AUTOMATION_CONDITION = "Does the incoming email contain a technical question related to data science, machine learning (ML models, training, evaluation), statistical analysis, exploratory data analysis (EDA), or prompt engineering? If yes, the condition is met."
-KNOWLEDGE_BASE_CONTEXT = "The agent is designed to provide concise and accurate technical advice on data science concepts. For general inquiries, politely inform the sender that you are an automated agent specialized in technical support only. Always maintain a highly professional, expert, and technical tone."
+# EXPANDED CONDITION: More explicit technical topics for better filtering.
+AUTOMATION_CONDITION = (
+    "Does the incoming email contain a technical or complex question related to any of the following fields? "
+    "1. Machine Learning (ML models, hyperparameter tuning, evaluation metrics, model deployment). "
+    "2. Deep Learning (Neural Networks, CNNs, RNNs, NLP using transformers). "
+    "3. Data Engineering (ETL pipelines, cloud data storage, workflow orchestration like Airflow). "
+    "4. Statistical Analysis (Hypothesis testing, A/B testing, regression analysis, time series forecasting). "
+    "5. Exploratory Data Analysis (EDA, visualization tools, data cleaning, feature engineering). "
+    "If yes, the condition is met. Ignore general inquiries or non-technical requests."
+)
+# MODIFIED CONTEXT: Focuses on simple, clear, conversational English for clients.
+KNOWLEDGE_BASE_CONTEXT = (
+    "You are an experienced Senior Data Scientist and Technical Support Agent. Your goal is to provide **simple, clear, and conversational advice in plain English, avoiding jargon and complex technical terms.** Always assume the recipient has no technical knowledge. Focus on clarity and actionable, easy-to-understand explanations. For inquiries outside the Data Science domain, politely state that you specialize in technical support for data analysis and ML only. Sign off all emails professionally."
+)
 
 # --- Helper Functions ---
 
@@ -66,12 +79,12 @@ def _fetch_latest_unread_email():
             return None, None, None
 
         latest_id = ids[-1]
+        # Store as read *before* processing to prevent re-processing in case of error
+        mail.store(latest_id, '+FLAGS', '\\Seen') 
+        
         status, msg_data = mail.fetch(latest_id, "(RFC822)")
         raw_email = msg_data[0][1]
         email_message = email.message_from_bytes(raw_email)
-
-        # Mark as read so we don't process it again next time
-        mail.store(latest_id, '+FLAGS', '\\Seen')
 
         # Extract sender's email
         from_header = email_message.get("From", "")
@@ -99,7 +112,10 @@ def _fetch_latest_unread_email():
         return None, None, None
 
 def _run_ai_agent(email_data, condition, kb_context):
-    """Calls the Together AI LLM for structured decision making."""
+    """
+    Calls the Together AI LLM for structured decision making with retry logic.
+    Mixtral-8x7B is used here for faster, higher-quality structured output.
+    """
     if not TOGETHER_API_KEY:
         print("ERROR: Together AI API Key is missing.")
         return None
@@ -140,6 +156,7 @@ def _run_ai_agent(email_data, condition, kb_context):
         'Authorization': f'Bearer {TOGETHER_API_KEY}'
     }
     
+    # Retry with exponential backoff for robustness
     for i in range(3): 
         try:
             response = requests.post(TOGETHER_API_URL, headers=headers, data=json.dumps(payload))
@@ -154,7 +171,7 @@ def _run_ai_agent(email_data, condition, kb_context):
                 return None
             else:
                 print(f"HTTP Error: {response.status_code}. Retrying in {2 * (i + 1)} seconds...")
-            time.sleep(2 * (i + 1))
+            time.sleep(2 ** (i + 1)) # Exponential backoff: 2s, 4s, 8s
         except Exception as e:
             print(f"AI Agent failed with unexpected error: {e}")
             return None
@@ -186,8 +203,10 @@ def main_agent_workflow():
         return
 
     # --- Process AI Output ---
-    condition_match = re.search(r"CONDITION_MET:\s*(YES|NO)", ai_output, re.IGNORECASE)
-    draft_match = re.search(r"REPLY_DRAFT:\s*([\s\S]*)", ai_output, re.IGNORECASE)
+    # Relaxed matching to handle potential markdown formatting from the LLM
+    condition_match = re.search(r"CONDITION_MET:\s*\[?(YES|NO)\]?", ai_output, re.IGNORECASE)
+    # Uses non-greedy match ([\s\S]*?) to capture everything after REPLY_DRAFT:
+    draft_match = re.search(r"REPLY_DRAFT:\s*([\s\S]*?)(?:--- END STRUCTURED OUTPUT ---|$)", ai_output, re.IGNORECASE)
     
     condition_met = condition_match.group(1).upper() if condition_match else "NO"
     reply_draft = draft_match.group(1).strip() if draft_match else "Could not generate a draft reply."
@@ -195,7 +214,11 @@ def main_agent_workflow():
     print(f"AGENT RESULT: Condition Met? {condition_met}")
 
     if condition_met == "YES":
-        final_subject = f"RE: {subject}"
+        final_subject = f"Re: {subject}"
+        # Prepend a professional greeting/closer if the draft looks incomplete
+        if not reply_draft.startswith("Hi") and not reply_draft.startswith("Hello"):
+             reply_draft = f"Hello,\n\n{reply_draft}"
+        
         print("ACTION: Attempting to send automated reply...")
         if _send_smtp_email(from_email, final_subject, reply_draft):
             print(f"SUCCESS: Automated reply sent to {from_email}.")
