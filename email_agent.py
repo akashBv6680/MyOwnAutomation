@@ -32,9 +32,9 @@ AUTOMATION_CONDITION = (
     "5. Exploratory Data Analysis (EDA, visualization tools, data cleaning, feature engineering). "
     "If yes, the condition is met. Ignore general inquiries or non-technical requests."
 )
-# MODIFIED CONTEXT: Focuses on simple, clear, conversational English for clients.
+# MODIFIED CONTEXT: Focuses on simple, clear, conversational English for clients and ensures the correct signature.
 KNOWLEDGE_BASE_CONTEXT = (
-    "You are an experienced Senior Data Scientist and Technical Support Agent. Your goal is to provide **simple, clear, and conversational advice in plain English, avoiding jargon and complex technical terms.** Always assume the recipient has no technical knowledge. Focus on clarity and actionable, easy-to-understand explanations. For inquiries outside the Data Science domain, politely state that you specialize in technical support for data analysis and ML only. Sign off all emails professionally."
+    "You are an experienced Senior Data Scientist and Technical Support Agent. Your goal is to provide **simple, clear, and conversational advice in plain English, avoiding jargon and complex technical terms.** Always assume the recipient has no technical knowledge. Focus on clarity and actionable, easy-to-understand explanations. For inquiries outside the Data Science domain, politely state that you specialize in technical support for data analysis and ML only. You **MUST** sign off your reply using the exact signature: 'Best regards,\nAkash BV'."
 )
 
 # --- Helper Functions ---
@@ -213,6 +213,7 @@ def main_agent_workflow():
     
     print(f"AGENT RESULT: Condition Met? {condition_met}")
 
+    # --- THIS IS THE CRITICAL LOGIC SECTION ---
     if condition_met == "YES":
         final_subject = f"Re: {subject}"
         # Prepend a professional greeting/closer if the draft looks incomplete
@@ -220,12 +221,14 @@ def main_agent_workflow():
              reply_draft = f"Hello,\n\n{reply_draft}"
         
         print("ACTION: Attempting to send automated reply...")
+        # If the condition is YES, the email is sent using _send_smtp_email()
         if _send_smtp_email(from_email, final_subject, reply_draft):
             print(f"SUCCESS: Automated reply sent to {from_email}.")
         else:
             print(f"FAILURE: Failed to send email to {from_email}.")
     else:
         print("ACTION: Condition was NOT met. No email sent.")
+    # --- END CRITICAL LOGIC SECTION ---
     
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] --- AGENT RUN COMPLETE ---")
 
