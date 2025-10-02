@@ -1,6 +1,9 @@
 name: Email Automation Scheduler
 
 This workflow runs automatically every 5 minutes using cron syntax.
+
+
+
 on:
 schedule:
 # '*/5 * * * ' means run at minute 0, 5, 10, 15, ..., 55 of every hour, every day.
@@ -23,7 +26,7 @@ env:
 steps:
   - name: Checkout Code
     uses: actions/checkout@v4 # Get your repository files
-    
+
   - name: Set up Python
     uses: actions/setup-python@v5
     with:
