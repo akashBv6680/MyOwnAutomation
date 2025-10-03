@@ -22,12 +22,19 @@ IMAP_SERVER = "imap.gmail.com"
 # Using Mixtral for speed and complex instruction following
 LLM_MODEL = "mistralai/Mixtral-8x7B-Instruct-v0.1" 
 
-# --- LangSmith Configuration for Tracing ---
-# The API Key is now loaded from GitHub Secrets (environment variable).
-os.environ["LANGCHAIN_TRACING_V2"] = "true"
-os.environ["LANGCHAIN_API_KEY"] = os.environ.get("LANGCHAIN_API_KEY") 
-os.environ["LANGCHAIN_PROJECT"] = "Email_automation_schedule"
-print("STATUS: LangSmith tracing configured.")
+# --- LangSmith Configuration for Tracing (FIXED: Added check for NoneType) ---
+langsmith_key = os.environ.get("LANGCHAIN_API_KEY")
+
+if langsmith_key:
+    # Only set tracing variables if the key is actually present
+    os.environ["LANGCHAIN_TRACING_V2"] = "true"
+    os.environ["LANGCHAIN_API_KEY"] = langsmith_key 
+    os.environ["LANGCHAIN_PROJECT"] = "Email_automation_schedule"
+    print("STATUS: LangSmith tracing configured.")
+else:
+    # Default to false if the key is missing, preventing the TypeError
+    os.environ["LANGCHAIN_TRACING_V2"] = "false"
+    print("STATUS: LANGCHAIN_API_KEY not found. LangSmith tracing is disabled.")
 
 
 # --- Knowledge Base & Persona Configuration ---
