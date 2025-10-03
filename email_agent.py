@@ -18,23 +18,52 @@ EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD") # Your 16-character App Passwo
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 465
 IMAP_SERVER = "imap.gmail.com"
-# CHANGED MODEL for faster response (Mixtral-8x7B is highly optimized for chat)
+# Using Mixtral for speed and complex instruction following
 LLM_MODEL = "mistralai/Mixtral-8x7B-Instruct-v0.1" 
 
-# --- User-Defined Logic (Customize These!) ---
-# EXPANDED CONDITION: More explicit technical topics for better filtering.
+# --- Knowledge Base & Persona Configuration ---
+
+# **CRITICAL STEP: PASTE YOUR PDF CONTENT HERE.**
+# --------------------------------------------------------------------------------
+# Since Python cannot read PDFs in this environment, you MUST manually copy the
+# entire text content of your 'datascience_knowledge.pdf' into this variable.
+# Use a triple quote block (multiline string) to paste the entire document.
+DATA_SCIENCE_KNOWLEDGE = """
+# Data Science Project & Service Knowledge Base
+# [This is a placeholder. Paste your actual PDF content here, ensuring it is plain text.]
+# --------------------------------------------------------------------------------
+## 1. Core Services Offered:
+- Advanced Regression and Predictive Modeling
+- Natural Language Processing (NLP) for text classification and sentiment analysis
+- Machine Learning Model Deployment using AWS/GCP
+- Data Visualization and interactive dashboards (Streamlit/PowerBI)
+
+## 2. Standard Client Engagement Process:
+1. Initial Discovery Call (30 minutes) to define scope and goals.
+2. Data Audit and Preparation Phase.
+3. Model Development and Validation.
+4. Deployment and Monitoring.
+
+## 3. Availability for Meetings:
+Available for 30-minute discovery calls on Monday, Wednesday, and Friday afternoons (IST).
+"""
+# --------------------------------------------------------------------------------
+
+# Agent 1 Condition: Determines if the email is technical enough to reply.
 AUTOMATION_CONDITION = (
-    "Does the incoming email contain a technical or complex question related to any of the following fields? "
-    "1. Machine Learning (ML models, hyperparameter tuning, evaluation metrics, model deployment). "
-    "2. Deep Learning (Neural Networks, CNNs, RNNs, NLP using transformers). "
-    "3. Data Engineering (ETL pipelines, cloud data storage, workflow orchestration like Airflow). "
-    "4. Statistical Analysis (Hypothesis testing, A/B testing, regression analysis, time series forecasting). "
-    "5. Exploratory Data Analysis (EDA, visualization tools, data cleaning, feature engineering). "
-    "If yes, the condition is met. Ignore general inquiries or non-technical requests."
+    "Does the incoming email contain a technical question or an explicit project inquiry/pitch related to Data Science, "
+    "Machine Learning (ML), Deep Learning, Data Engineering, or advanced Statistical Analysis? "
 )
-# MODIFIED CONTEXT: Focuses on simple, clear, conversational English for clients and ensures the correct signature.
-KNOWLEDGE_BASE_CONTEXT = (
-    "You are an experienced Senior Data Scientist and Technical Support Agent. Your goal is to provide **simple, clear, and conversational advice in plain English, avoiding jargon and complex technical terms.** Always assume the recipient has no technical knowledge. Focus on clarity and actionable, easy-to-understand explanations. For inquiries outside the Data Science domain, politely state that you specialize in technical support for data analysis and ML only. You **MUST** sign off your reply using the exact signature: 'Best regards,\nAkash BV'."
+
+# Agent 2 & 4 Persona: Defines reply style and meeting scheduling logic.
+AGENTIC_SYSTEM_INSTRUCTIONS = (
+    "You are a professional, Agentic AI system acting as Senior Data Scientist, Akash BV. Your task is to perform four roles:\n"
+    "1. CONDITION CHECK: Determine if the email is technical or a project pitch (based on the AUTOMATION_CONDITION).\n"
+    "2. TRANSLATOR: If technical, generate a **simple, clear, and conversational reply in plain English, avoiding technical jargon** (Agent 2).\n"
+    "3. TONE ANALYZER: If the email contains clear project details, a project pitch, or a serious inquiry, suggest a meeting by setting 'request_meeting' to true (Agent 4).\n"
+    "4. SENDER (Python handles this): Provide the reply draft and meeting draft in the structured JSON format below. \n\n"
+    "USE THE KNOWLEDGE BASE for drafting replies and meeting availability."
+    "You MUST sign off your reply with the exact signature: 'Best regards,\\nAkash BV'."
 )
 
 # --- Helper Functions ---
@@ -71,7 +100,6 @@ def _fetch_latest_unread_email():
         mail.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
         mail.select("inbox")
         
-        # Search for unread emails
         status, data = mail.search(None, 'UNSEEN')
         ids = data[0].split()
 
@@ -79,21 +107,18 @@ def _fetch_latest_unread_email():
             return None, None, None
 
         latest_id = ids[-1]
-        # Store as read *before* processing to prevent re-processing in case of error
         mail.store(latest_id, '+FLAGS', '\\Seen') 
         
         status, msg_data = mail.fetch(latest_id, "(RFC822)")
         raw_email = msg_data[0][1]
         email_message = email.message_from_bytes(raw_email)
 
-        # Extract sender's email
         from_header = email_message.get("From", "")
         subject = email_message.get("Subject", "No Subject")
         
         from_match = re.search(r"<([^>]+)>", from_header)
         from_email = from_match.group(1) if from_match else from_header
         
-        # Extract email body
         body = ""
         if email_message.is_multipart():
             for part in email_message.walk():
@@ -111,44 +136,54 @@ def _fetch_latest_unread_email():
         print(f"CRITICAL IMAP ERROR: Failed to fetch email. Check your EMAIL_PASSWORD (App Password). Error: {e}")
         return None, None, None
 
-def _run_ai_agent(email_data, condition, kb_context):
+def _run_ai_agent(email_data):
     """
-    Calls the Together AI LLM for structured decision making with retry logic.
-    Mixtral-8x7B is used here for faster, higher-quality structured output.
+    Calls the Together AI LLM using a structured JSON schema to simulate the four agents.
     """
     if not TOGETHER_API_KEY:
         print("ERROR: Together AI API Key is missing.")
         return None
 
-    system_prompt = (
-        "You are a professional Email Automation Agent. Analyze the email against the Condition. "
-        "Your priority is to determine if the condition is met and draft a professional reply based on the knowledge base. "
-        "You MUST output the structured format below."
-        "\n\n--- STRUCTURED OUTPUT ---\n"
-        "CONDITION_MET: [YES or NO]\n"
-        "REPLY_DRAFT: [Your complete, professional drafted email reply content]\n"
-        "--- END STRUCTURED OUTPUT ---"
-    )
-
     user_query = (
-        f"--- USER-DEFINED CONDITION ---\n{condition}\n\n"
-        f"--- KNOWLEDGE BASE CONTEXT ---\n{kb_context}\n\n"
+        f"--- TASK CONFIGURATION ---\n"
+        f"CONDITION TO CHECK: {AUTOMATION_CONDITION}\n"
+        f"KNOWLEDGE BASE (For context and reply): {DATA_SCIENCE_KNOWLEDGE}\n\n"
         f"--- INCOMING EMAIL CONTENT ---\n"
         f"FROM: {email_data['from_email']}\n"
         f"SUBJECT: {email_data['subject']}\n"
-        f"BODY:\n{email_data['body']}"
+        f"BODY:\n{email_data['body']}\n\n"
+        "Analyze the email and respond using the required JSON schema below. Ensure all replies are non-technical and professional."
     )
     
     messages_payload = [
-        {"role": "system", "content": system_prompt},
+        {"role": "system", "content": AGENTIC_SYSTEM_INSTRUCTIONS},
         {"role": "user", "content": user_query}
     ]
+
+    # JSON Schema definition to enforce structured output for the agents
+    response_schema = {
+        "type": "OBJECT",
+        "properties": {
+            # Agent 1: Condition Checker
+            "is_technical": {"type": "BOOLEAN", "description": "True if the email matches the technical/project condition, False otherwise."},
+            
+            # Agent 2: Translator/Analyzer
+            "simple_reply_draft": {"type": "STRING", "description": "The primary reply to the client, simplified and non-technical, based on the knowledge base."},
+            
+            # Agent 4: Meeting Scheduler
+            "request_meeting": {"type": "BOOLEAN", "description": "True if the tone suggests a serious project inquiry or pitch, False otherwise. (Triggers meeting suggestion)."},
+            "meeting_suggestion_draft": {"type": "STRING", "description": "If request_meeting is true, draft a reply suggesting available dates from the knowledge base (e.g., 'Are you available this week on Monday, Wednesday, or Friday afternoon?')."},
+        },
+        "required": ["is_technical", "simple_reply_draft", "request_meeting", "meeting_suggestion_draft"]
+    }
 
     payload = {
         "model": LLM_MODEL,
         "messages": messages_payload,
         "temperature": 0.3,
-        "max_tokens": 1024
+        "max_tokens": 2048,
+        "response_mime_type": "application/json",
+        "response_schema": response_schema
     }
     
     headers = {
@@ -162,7 +197,10 @@ def _run_ai_agent(email_data, condition, kb_context):
             response = requests.post(TOGETHER_API_URL, headers=headers, data=json.dumps(payload))
             response.raise_for_status()
             response_json = response.json()
-            return response_json['choices'][0]['message']['content']
+            # The Mixtral response will be a string containing JSON, so we parse it
+            raw_json_string = response_json['choices'][0]['message']['content'].strip()
+            return json.loads(raw_json_string)
+
         except requests.exceptions.RequestException as e:
             if response.status_code == 429:
                 print(f"Rate limit exceeded. Retrying in {2 * (i + 1)} seconds...")
@@ -171,16 +209,16 @@ def _run_ai_agent(email_data, condition, kb_context):
                 return None
             else:
                 print(f"HTTP Error: {response.status_code}. Retrying in {2 * (i + 1)} seconds...")
-            time.sleep(2 ** (i + 1)) # Exponential backoff: 2s, 4s, 8s
+            time.sleep(2 ** (i + 1)) 
         except Exception as e:
-            print(f"AI Agent failed with unexpected error: {e}")
+            print(f"AI Agent failed with unexpected error or failed to parse JSON: {e}")
             return None
     return None
 
 def main_agent_workflow():
     """The main entry point for the scheduled job."""
     
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] --- STARTING EMAIL AGENT RUN ---")
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] --- STARTING AGENTIC AI RUN ---")
 
     from_email, subject, body = _fetch_latest_unread_email()
 
@@ -196,41 +234,46 @@ def main_agent_workflow():
         "body": body
     }
 
-    ai_output = _run_ai_agent(email_data, AUTOMATION_CONDITION, KNOWLEDGE_BASE_CONTEXT)
+    # Run the single LLM to perform all four agent roles (returns structured JSON)
+    ai_output = _run_ai_agent(email_data)
 
     if not ai_output:
-        print(f"ERROR: AI Agent failed to produce output for {from_email}. Exiting.")
+        print(f"ERROR: Agentic AI failed to produce structured output for {from_email}. Exiting.")
         return
 
-    # --- Process AI Output ---
-    # Relaxed matching to handle potential markdown formatting from the LLM
-    condition_match = re.search(r"CONDITION_MET:\s*\[?(YES|NO)\]?", ai_output, re.IGNORECASE)
-    # Uses non-greedy match ([\s\S]*?) to capture everything after REPLY_DRAFT:
-    draft_match = re.search(r"REPLY_DRAFT:\s*([\s\S]*?)(?:--- END STRUCTURED OUTPUT ---|$)", ai_output, re.IGNORECASE)
+    # Extract results from the JSON output
+    is_technical = ai_output.get("is_technical", False)
+    simple_reply_draft = ai_output.get("simple_reply_draft", "Default non-technical support.")
+    request_meeting = ai_output.get("request_meeting", False)
+    meeting_suggestion_draft = ai_output.get("meeting_suggestion_draft", simple_reply_draft)
     
-    condition_met = condition_match.group(1).upper() if condition_match else "NO"
-    reply_draft = draft_match.group(1).strip() if draft_match else "Could not generate a draft reply."
-    
-    print(f"AGENT RESULT: Condition Met? {condition_met}")
+    print(f"AGENT RESULT: Is Technical/Project? {is_technical} | Request Meeting? {request_meeting}")
 
-    # --- THIS IS THE CRITICAL LOGIC SECTION ---
-    if condition_met == "YES":
+    if is_technical:
         final_subject = f"Re: {subject}"
-        # Prepend a professional greeting/closer if the draft looks incomplete
-        if not reply_draft.startswith("Hi") and not reply_draft.startswith("Hello"):
+        
+        # Agent 4: Prioritize the meeting draft if the tone was serious
+        if request_meeting:
+            reply_draft = meeting_suggestion_draft
+            print("ACTION: Condition met AND tone required meeting. Sending meeting suggestion.")
+        else:
+            # Agent 2: Send the simple explanation
+            reply_draft = simple_reply_draft
+            print("ACTION: Condition met. Sending simple technical explanation.")
+        
+        # Ensure a greeting is prepended if the AI didn't include one
+        if not reply_draft.lower().startswith("hello") and not reply_draft.lower().startswith("hi"):
              reply_draft = f"Hello,\n\n{reply_draft}"
         
         print("ACTION: Attempting to send automated reply...")
-        # If the condition is YES, the email is sent using _send_smtp_email()
         if _send_smtp_email(from_email, final_subject, reply_draft):
             print(f"SUCCESS: Automated reply sent to {from_email}.")
         else:
             print(f"FAILURE: Failed to send email to {from_email}.")
     else:
-        print("ACTION: Condition was NOT met. No email sent.")
-    # --- END CRITICAL LOGIC SECTION ---
+        print("ACTION: Condition was NOT met. Not a technical or project inquiry. No email sent.")
     
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] --- AGENT RUN COMPLETE ---")
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] --- AGENTIC AI RUN COMPLETE ---")
 
 if __name__ == "__main__":
     main_agent_workflow()
