@@ -22,17 +22,15 @@ IMAP_SERVER = "imap.gmail.com"
 # Using Mixtral for speed and complex instruction following
 LLM_MODEL = "mistralai/Mixtral-8x7B-Instruct-v0.1" 
 
-# --- LangSmith Configuration for Tracing (FIXED: Added check for NoneType) ---
+# --- LangSmith Configuration for Tracing ---
 langsmith_key = os.environ.get("LANGCHAIN_API_KEY")
 
 if langsmith_key:
-    # Only set tracing variables if the key is actually present
     os.environ["LANGCHAIN_TRACING_V2"] = "true"
     os.environ["LANGCHAIN_API_KEY"] = langsmith_key 
     os.environ["LANGCHAIN_PROJECT"] = "Email_automation_schedule"
     print("STATUS: LangSmith tracing configured.")
 else:
-    # Default to false if the key is missing, preventing the TypeError
     os.environ["LANGCHAIN_TRACING_V2"] = "false"
     print("STATUS: LANGCHAIN_API_KEY not found. LangSmith tracing is disabled.")
 
@@ -41,37 +39,38 @@ else:
 
 # **CRITICAL STEP: PASTE YOUR PDF CONTENT HERE.**
 # --------------------------------------------------------------------------------
-# Since Python cannot read PDFs in this environment, you MUST manually copy the
-# entire text content of your 'datascience_knowledge.pdf' into this variable.
-# Use a triple quote block (multiline string) to paste the entire document.
+# Ensure the text below contains the Time Series keywords (LSTM, ARIMA, Forecasting)
+# for the AI to recognize the email and provide a high-quality, relevant answer.
 DATA_SCIENCE_KNOWLEDGE = """
-# Data Science Project & Service Knowledge Base
-#
-# INSTRUCTION: This is example data. DELETE this entire block and paste the
-# ENTIRE plain text content of your datascience_knowledge.pdf file here.
+# Data Science Project & Service Knowledge Base (Updated for Time Series)
 #
 # --------------------------------------------------------------------------------
 ## 1. Core Services Offered:
-- **Predictive Modeling:** Advanced Regression, Time Series Forecasting (ARIMA, Prophet, LSTMs).
+- **Predictive Modeling:** Advanced Regression, Time Series Forecasting (including **ARIMA**, SARIMA, Prophet, and **LSTM** for complex sequences).
 - **Natural Language Processing (NLP):** Sentiment Analysis, Topic Modeling, Text Summarization, and custom Named Entity Recognition (NER).
 - **Computer Vision:** Object Detection, Image Segmentation, and OCR solutions using CNNs (YOLO, ResNet).
 - **MLOps and Deployment:** Model containerization (Docker), CI/CD pipelines, and hosting on AWS SageMaker, Azure ML, or GCP Vertex AI.
 - **Data Engineering:** ETL pipeline development using Python/Pandas, Spark, and SQL optimization for large datasets.
 - **Data Visualization & Reporting:** Interactive dashboards built with Streamlit, Tableau, and Power BI for executive summaries.
 
-## 2. Standard Client Engagement Process:
+## 2. Guidance for Time Series Forecasting (Specific Reply Content):
+- **ARIMA (and variations like SARIMA):** Excellent baseline for linear relationships and stationary data. Great for **short-term, stable predictions** and when interpretability is key. Requires data stationarity.
+- **LSTM (Long Short-Term Memory Networks):** A type of recurrent neural network (RNN) superior for capturing complex, non-linear relationships, long-term dependencies, and memory in the data. Ideal for **long-term predictions** or highly volatile, non-stationary data (e.g., stock prices, sensor data). Requires more data and computation.
+- **Recommendation:** If the data is complex, non-linear, or the prediction horizon is long, **prioritize LSTM**. For simple, short-term, or highly interpretable needs, **ARIMA is better**.
+
+## 3. Standard Client Engagement Process:
 1. **Initial Discovery Call (45 minutes):** Define the business problem, available data sources, and establish success metrics.
 2. **Data Audit and Preparation (Phase 1):** Comprehensive review of data quality, feature engineering, and cleaning.
 3. **Model Prototyping and Validation (Phase 2):** Iterative development, hyperparameter tuning, and cross-validation.
 4. **Deployment and Handoff (Phase 3):** Integration of the final model into the client's infrastructure and comprehensive documentation/training.
 5. **Post-Deployment Monitoring:** Quarterly performance reviews and model drift detection.
 
-## 3. Availability for Meetings:
+## 4. Availability for Meetings:
 Available for 45-minute discovery calls on **Mondays, Wednesdays, and Fridays** between 2:00 PM and 5:00 PM **IST** (Indian Standard Time). Please propose two time slots within this window.
 """
 # --------------------------------------------------------------------------------
 
-# Agent 1 Condition: Determines if the email is technical enough to reply.
+# Agent 1 Condition: Determines if the email is technical enough for a specialized reply.
 AUTOMATION_CONDITION = (
     "Does the incoming email contain a technical question or an explicit project inquiry/pitch related to Data Science, "
     "Machine Learning (ML), Deep Learning, Data Engineering, or advanced Statistical Analysis? "
@@ -79,16 +78,19 @@ AUTOMATION_CONDITION = (
 
 # Agent 2 & 4 Persona: Defines reply style and meeting scheduling logic.
 AGENTIC_SYSTEM_INSTRUCTIONS = (
-    "You are a professional, Agentic AI system acting as Senior Data Scientist, Akash BV. Your task is to perform four roles:\n"
+    "You are a professional, Agentic AI system acting as Senior Data Scientist, Akash BV. Your task is to perform all required roles and provide a structured JSON output.\n"
     "1. CONDITION CHECK: Determine if the email is technical or a project pitch (based on the AUTOMATION_CONDITION).\n"
-    "2. TRANSLATOR: If technical, generate a **simple, clear, and conversational reply in plain English, avoiding technical jargon** (Agent 2).\n"
-    "3. TONE ANALYZER: If the email contains clear project details, a project pitch, or a serious inquiry, suggest a meeting by setting 'request_meeting' to true (Agent 4).\n"
-    "4. SENDER (Python handles this): Provide the reply draft and meeting draft in the structured JSON format below. \n\n"
-    "USE THE KNOWLEDGE BASE for drafting replies and meeting availability."
-    "You MUST sign off your reply with the exact signature: 'Best regards,\\nAkash BV'."
+    "2. TRANSLATOR: Generate a technical reply if needed, or a polite general reply if not technical.\n"
+    "3. TONE ANALYZER: If the email contains clear project details, a project pitch, or a serious inquiry, suggest a meeting by setting 'request_meeting' to true.\n\n"
+    
+    "GUIDANCE:\n"
+    " - If 'is_technical' is TRUE, use 'simple_reply_draft' and potentially 'meeting_suggestion_draft'.\n"
+    " - If 'is_technical' is FALSE, use 'non_technical_reply_draft'.\n"
+    " - USE THE KNOWLEDGE BASE for drafting technical replies and meeting availability. \n"
+    " - You MUST sign off all replies with the exact signature: 'Best regards,\\nAkash BV'."
 )
 
-# --- Helper Functions ---
+# --- Helper Functions (No changes needed here) ---
 
 def _send_smtp_email(to_email, subject, content):
     """Utility to send an email via SMTP_SSL."""
@@ -180,7 +182,6 @@ def _run_ai_agent(email_data):
         print("CRITICAL ERROR: Together AI API Key is missing. Cannot run agent.")
         return None
 
-    # Check if the knowledge base is empty
     if len(DATA_SCIENCE_KNOWLEDGE.strip()) < 50:
          print("WARNING: DATA_SCIENCE_KNOWLEDGE is likely empty or too short. AI response quality will suffer.")
 
@@ -192,7 +193,7 @@ def _run_ai_agent(email_data):
         f"FROM: {email_data['from_email']}\n"
         f"SUBJECT: {email_data['subject']}\n"
         f"BODY:\n{email_data['body']}\n\n"
-        "Analyze the email and respond using the required JSON schema below. Ensure all replies are non-technical and professional."
+        "Analyze the email and respond using the required JSON schema below. Ensure all replies are non-technical and professional. REMEMBER: Always generate a reply draft for both technical and non-technical cases."
     )
     
     messages_payload = [
@@ -200,21 +201,24 @@ def _run_ai_agent(email_data):
         {"role": "user", "content": user_query}
     ]
 
-    # JSON Schema definition to enforce structured output for the agents
+    # JSON Schema definition to enforce structured output
     response_schema = {
         "type": "OBJECT",
         "properties": {
-            # Agent 1: Condition Checker - Boolean logic restored based on user's request
+            # Agent 1: Condition Checker 
             "is_technical": {"type": "BOOLEAN", "description": "True if the email matches the technical/project condition, False otherwise."},
             
-            # Agent 2: Translator/Analyzer
-            "simple_reply_draft": {"type": "STRING", "description": "The primary reply to the client, simplified and non-technical, based on the knowledge base."},
+            # Agent 2a: Translator/Analyzer (Technical Reply)
+            "simple_reply_draft": {"type": "STRING", "description": "The primary reply to the client, simplified and non-technical, based on the knowledge base (USED IF is_technical is TRUE)."},
             
-            # Agent 4: Meeting Scheduler - Boolean logic restored based on user's request
+            # Agent 2b: Translator/Analyzer (General Reply) -- NEW FIELD FOR NON-TECHNICAL RESPONSE
+            "non_technical_reply_draft": {"type": "STRING", "description": "A polite, professional acknowledgement and offer to help, used if is_technical is FALSE (e.g., 'Thanks for reaching out, how can I help?')."},
+
+            # Agent 4: Meeting Scheduler
             "request_meeting": {"type": "BOOLEAN", "description": "True if the tone suggests a serious project inquiry or pitch, False otherwise. (Triggers meeting suggestion)."},
             "meeting_suggestion_draft": {"type": "STRING", "description": "If request_meeting is true, draft a reply suggesting available dates from the knowledge base (e.g., 'Are you available this week on Monday, Wednesday, or Friday afternoon?')."},
         },
-        "required": ["is_technical", "simple_reply_draft", "request_meeting", "meeting_suggestion_draft"]
+        "required": ["is_technical", "simple_reply_draft", "non_technical_reply_draft", "request_meeting", "meeting_suggestion_draft"]
     }
 
     payload = {
@@ -238,7 +242,6 @@ def _run_ai_agent(email_data):
             response = requests.post(TOGETHER_API_URL, headers=headers, data=json.dumps(payload))
             response.raise_for_status()
             response_json = response.json()
-            # The Mixtral response will be a string containing JSON, so we parse it
             raw_json_string = response_json['choices'][0]['message']['content'].strip()
             print("DEBUG: AI call successful. Attempting JSON parse...")
             return json.loads(raw_json_string)
@@ -260,7 +263,6 @@ def _run_ai_agent(email_data):
 def main_agent_workflow():
     """The main entry point for the scheduled job."""
     
-    # This print statement will appear in your LangSmith trace logs as a custom log
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] --- STARTING AGENTIC AI RUN ---")
 
     from_email, subject, body = _fetch_latest_unread_email()
@@ -277,7 +279,6 @@ def main_agent_workflow():
         "body": body
     }
 
-    # Run the single LLM to perform all four agent roles (returns structured JSON)
     ai_output = _run_ai_agent(email_data)
 
     if not ai_output:
@@ -286,38 +287,45 @@ def main_agent_workflow():
 
     # Extract results from the JSON output
     is_technical = ai_output.get("is_technical", False)
-    simple_reply_draft = ai_output.get("simple_reply_draft", "Default non-technical support.")
     request_meeting = ai_output.get("request_meeting", False)
+    
+    # Get all three potential reply drafts
+    simple_reply_draft = ai_output.get("simple_reply_draft", "Error: Technical draft missing.")
+    non_technical_reply_draft = ai_output.get("non_technical_reply_draft", "Thank you for your email. I'll review this and get back to you shortly. Best regards,\nAkash BV")
     meeting_suggestion_draft = ai_output.get("meeting_suggestion_draft", simple_reply_draft)
     
     # This is the most important log line! Check what the agent decided.
     print(f"AGENT RESULT: Is Technical/Project? {is_technical} | Request Meeting? {request_meeting}")
 
+    final_subject = f"Re: {subject}"
+    reply_draft = ""
+    action_log = ""
+
     if is_technical:
-        final_subject = f"Re: {subject}"
-        
-        # Agent 4: Prioritize the meeting draft if the tone was serious
+        # TECHNICAL PATH (Use simple_reply_draft or meeting_suggestion_draft)
         if request_meeting:
             reply_draft = meeting_suggestion_draft
-            print("ACTION: Condition met AND tone required meeting. Sending meeting suggestion.")
+            action_log = "Condition met AND tone required meeting. Sending meeting suggestion."
         else:
-            # Agent 2: Send the simple explanation
             reply_draft = simple_reply_draft
-            print("ACTION: Condition met. Sending simple technical explanation.")
-        
-        # Ensure a greeting is prepended if the AI didn't include one
-        if not reply_draft.lower().startswith("hello") and not reply_draft.lower().startswith("hi"):
-             reply_draft = f"Hello,\n\n{reply_draft}"
-        
-        print("ACTION: Attempting to send automated reply...")
-        if _send_smtp_email(from_email, final_subject, reply_draft):
-            print(f"SUCCESS: Automated reply sent to {from_email}.")
-        else:
-            print(f"FAILURE: Failed to send email to {from_email}.")
+            action_log = "Condition met. Sending simple technical explanation."
     else:
-        print("ACTION: Condition was NOT met. Not a technical or project inquiry. No email sent.")
+        # NON-TECHNICAL PATH (ALWAYS REPLY using non_technical_reply_draft)
+        reply_draft = non_technical_reply_draft
+        action_log = "Condition NOT met (General Inquiry). Sending polite, non-technical acknowledgement."
     
-    # This print statement will also appear in your LangSmith trace logs
+    # Prepend greeting if missing and attempt to send the email
+    if not reply_draft.lower().startswith("hello") and not reply_draft.lower().startswith("hi"):
+         reply_draft = f"Hello,\n\n{reply_draft}"
+        
+    print(f"ACTION: {action_log}")
+    print("ACTION: Attempting to send automated reply...")
+    
+    if _send_smtp_email(from_email, final_subject, reply_draft):
+        print(f"SUCCESS: Automated reply sent to {from_email}.")
+    else:
+        print(f"FAILURE: Failed to send email to {from_email}.")
+    
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] --- AGENTIC AI RUN COMPLETE ---")
 
 if __name__ == "__main__":
