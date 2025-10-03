@@ -28,68 +28,32 @@ langsmith_key = os.environ.get("LANGCHAIN_API_KEY")
 if langsmith_key:
     os.environ["LANGCHAIN_TRACING_V2"] = "true"
     os.environ["LANGCHAIN_API_KEY"] = langsmith_key 
-    os.environ["LANGCHAIN_PROJECT"] = "Email_automation_schedule"
+    os.environ["LANGCHAIN_PROJECT"] = "Email_automation_langgraph_sim"
     print("STATUS: LangSmith tracing configured.")
 else:
     os.environ["LANGCHAIN_TRACING_V2"] = "false"
     print("STATUS: LANGCHAIN_API_KEY not found. LangSmith tracing is disabled.")
 
+# --- System Prompts for Agentic Calls ---
 
-# --- Knowledge Base & Persona Configuration ---
-
-# **CRITICAL STEP: PASTE YOUR PDF CONTENT HERE.**
-# --------------------------------------------------------------------------------
-# The knowledge base has been slightly expanded to cover more project details.
-DATA_SCIENCE_KNOWLEDGE = """
-# Data Science Project & Service Knowledge Base (Updated for Time Series and Project Inquiries)
-#
-# --------------------------------------------------------------------------------
-## 1. Core Services Offered:
-- **Predictive Modeling:** Advanced Regression, Time Series Forecasting (including **ARIMA**, SARIMA, Prophet, and **LSTM** for complex sequences). We handle complex **problem statements** across finance, logistics, and retail.
-- **Machine Learning (ML) Projects:** Full lifecycle development for all ML tasks (classification, clustering, reinforcement learning).
-- **Natural Language Processing (NLP):** Sentiment Analysis, Topic Modeling, Text Summarization, and custom Named Entity Recognition (NER).
-- **Computer Vision:** Object Detection, Image Segmentation, and OCR solutions using CNNs (YOLO, ResNet).
-- **MLOps and Deployment:** Model containerization (Docker), CI/CD pipelines, and hosting on AWS SageMaker, Azure ML, or GCP Vertex AI.
-- **Data Engineering:** ETL pipeline development using Python/Pandas, Spark, and SQL optimization for large datasets.
-- **Data Visualization & Reporting:** Interactive dashboards built with Streamlit, Tableau, and Power BI for executive summaries.
-
-## 2. Guidance for Time Series Forecasting (Specific Reply Content):
-- **ARIMA (and variations like SARIMA):** Excellent baseline for linear relationships and stationary data. Great for **short-term, stable predictions** and when interpretability is key. Requires data stationarity.
-- **LSTM (Long Short-Term Memory Networks):** A type of recurrent neural network (RNN) superior for capturing complex, non-linear relationships, long-term dependencies, and memory in the data. Ideal for **long-term predictions** or highly volatile, non-stationary data (e.g., stock prices, sensor data). Requires more data and computation.
-- **Recommendation:** If the data is complex, non-linear, or the prediction horizon is long, **prioritize LSTM**. For simple, short-term, or highly interpretable needs, **ARIMA is better**.
-
-## 3. Standard Client Engagement Process:
-1. **Initial Discovery Call (45 minutes):** Define the business problem, available data sources, and establish success metrics.
-2. **Data Audit and Preparation (Phase 1):** Comprehensive review of data quality, feature engineering, and cleaning.
-3. **Model Prototyping and Validation (Phase 2):** Iterative development, hyperparameter tuning, and cross-validation.
-4. **Deployment and Handoff (Phase 3):** Integration of the final model into the client's infrastructure and comprehensive documentation/training.
-5. **Post-Deployment Monitoring:** Quarterly performance reviews and model drift detection.
-
-## 4. Availability for Meetings:
-Available for 45-minute discovery calls on **Mondays, Wednesdays, and Fridays** between 2:00 PM and 5:00 PM **IST** (Indian Standard Time). Please propose two time slots within this window.
-"""
-# --------------------------------------------------------------------------------
-
-# Agent 1 Condition: Determines if the email is technical enough for a specialized reply.
-AUTOMATION_CONDITION = (
-    "Does the incoming email contain a technical question or an explicit project inquiry/pitch related to Data Science, "
-    "Machine Learning (ML), Deep Learning, Data Engineering, advanced Statistical Analysis, or any service listed in the core offerings? "
+# Agent 1 (Condition Checker / Tone Analyzer)
+CONDITION_CHECKER_INSTRUCTIONS = (
+    "You are a sophisticated routing agent. Your only task is to analyze the incoming email based on the strict condition provided and determine the next step.\n"
+    "STRICT CONDITION: The email MUST be a specific project inquiry or a technical question related to Data Science, Machine Learning, Deep Learning, Statistical Modeling, Time Series, or Data Engineering.\n"
+    "OUTPUT RULE: Respond STRICTLY in the JSON format provided."
 )
 
-# Agent 2 & 4 Persona: Defines reply style and meeting scheduling logic.
-AGENTIC_SYSTEM_INSTRUCTIONS = (
-    "You are a professional, Agentic AI system acting ONLY as Senior Data Scientist, Akash BV. You MUST NOT impersonate anyone else or reply to third-party content (like certificates or team emails).\n"
-    "Your primary goal is to provide a helpful, professional, and courteous response to every email. Your task is to perform all required roles and provide a structured JSON output.\n"
-    "1. CONDITION CHECK: Determine if the email is technical or a project pitch (based on the AUTOMATION_CONDITION).\n"
-    "2. TRANSLATOR: Generate a reply. If technical, use the Knowledge Base for details. If non-technical, generate a polite general acknowledgement.\n"
-    "3. TONE ANALYZER: If the email contains a serious project inquiry, set 'request_meeting' to true.\n\n"
+# Agent 2 (Reply Generator / Translator / Scheduler)
+REPLY_GENERATOR_INSTRUCTIONS = (
+    "You are Senior Data Scientist, Akash BV. Your task is to draft the final email reply based on the provided context and routing decision.\n"
+    "PERSONA RULE: Reply professionally, courteously, and in **plain text only (NO HTML tags like <br>)**.\n"
+    "SIGNATURE RULE: Sign off every reply with the exact signature: 'Best regards,\\nAkash BV'.\n\n"
     
-    "CRITICAL FORMATTING GUIDANCE:\n"
-    " - All generated drafts (simple_reply_draft, non_technical_reply_draft, meeting_suggestion_draft) MUST be in **PLAIN TEXT** format. **DO NOT USE HTML TAGS (like <br> or <b>)**.\n"
-    " - All replies MUST be signed off with the exact signature: 'Best regards,\\nAkash BV'."
+    "IF the email IS Data Science related and requires a meeting: Provide a brief, value-add technical comment and proactively suggest a meeting time (Monday, Wednesday, or Friday between 2:00 PM and 5:00 PM IST).\n"
+    "IF the email IS NOT Data Science related: Provide a polite, general acknowledgement, stating you will get back to them shortly after review."
 )
 
-# --- Helper Functions (No changes needed here) ---
+# --- Helper Functions (Standard Email I/O) ---
 
 def _send_smtp_email(to_email, subject, content):
     """Utility to send an email via SMTP_SSL."""
@@ -125,18 +89,13 @@ def _fetch_latest_unread_email():
         return None, None, None
 
     try:
-        print(f"DEBUG: Attempting to log into IMAP server {IMAP_SERVER}...")
         mail = imaplib.IMAP4_SSL(IMAP_SERVER)
         mail.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
-        print("DEBUG: IMAP login successful.")
-        
         mail.select("inbox")
-        
         status, data = mail.search(None, 'UNSEEN')
         ids = data[0].split()
 
         if not ids:
-            print("STATUS: IMAP search found no unread emails.")
             return None, None, None
 
         latest_id = ids[-1]
@@ -163,62 +122,25 @@ def _fetch_latest_unread_email():
         else:
             body = email_message.get_payload(decode=True).decode()
         
-        print(f"DEBUG: Successfully processed email from {from_email} with subject: {subject[:30]}...")
         return from_email, subject, body
 
-    except imaplib.IMAP4.error as e:
-        print(f"CRITICAL IMAP ERROR: Failed to fetch email. Check your App Password and IMAP settings. Error: {e}")
-        return None, None, None
     except Exception as e:
-        print(f"CRITICAL IMAP ERROR: An unexpected error occurred during email fetching: {e}")
+        print(f"CRITICAL IMAP ERROR: An unexpected error occurred: {e}")
         return None, None, None
 
-def _run_ai_agent(email_data):
+def _run_ai_agent(system_prompt, user_query, response_schema):
     """
-    Calls the Together AI LLM using a structured JSON schema to simulate the four agents.
+    Calls the Together AI LLM with structured output enforcement.
+    Simulates a single Langgraph 'Node' execution.
     """
     if not TOGETHER_API_KEY:
         print("CRITICAL ERROR: Together AI API Key is missing. Cannot run agent.")
         return None
 
-    if len(DATA_SCIENCE_KNOWLEDGE.strip()) < 50:
-         print("WARNING: DATA_SCIENCE_KNOWLEDGE is likely empty or too short. AI response quality will suffer.")
-
-    user_query = (
-        f"--- TASK CONFIGURATION ---\n"
-        f"CONDITION TO CHECK: {AUTOMATION_CONDITION}\n"
-        f"KNOWLEDGE BASE (For context and reply): {DATA_SCIENCE_KNOWLEDGE}\n\n"
-        f"--- INCOMING EMAIL CONTENT ---\n"
-        f"FROM: {email_data['from_email']}\n"
-        f"SUBJECT: {email_data['subject']}\n"
-        f"BODY:\n{email_data['body']}\n\n"
-        "Analyze the email and respond using the required JSON schema below. Ensure all replies are non-technical, professional, and in PLAIN TEXT."
-    )
-    
     messages_payload = [
-        {"role": "system", "content": AGENTIC_SYSTEM_INSTRUCTIONS},
+        {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_query}
     ]
-
-    # JSON Schema definition to enforce structured output
-    response_schema = {
-        "type": "OBJECT",
-        "properties": {
-            # Agent 1: Condition Checker 
-            "is_technical": {"type": "BOOLEAN", "description": "True if the email matches the technical/project condition, False otherwise."},
-            
-            # Agent 2a: Translator/Analyzer (Technical Reply)
-            "simple_reply_draft": {"type": "STRING", "description": "The primary reply to the client, simplified and non-technical, based on the knowledge base (USED IF is_technical is TRUE)."},
-            
-            # Agent 2b: Translator/Analyzer (General Reply) 
-            "non_technical_reply_draft": {"type": "STRING", "description": "A polite, professional acknowledgement and offer to help, used if is_technical is FALSE."},
-
-            # Agent 4: Meeting Scheduler
-            "request_meeting": {"type": "BOOLEAN", "description": "True if the tone suggests a serious project inquiry or pitch, False otherwise. (Triggers meeting suggestion)."},
-            "meeting_suggestion_draft": {"type": "STRING", "description": "If request_meeting is true, draft a reply suggesting available dates from the knowledge base (e.g., 'Are you available this week on Monday, Wednesday, or Friday afternoon?')."},
-        },
-        "required": ["is_technical", "simple_reply_draft", "non_technical_reply_draft", "request_meeting", "meeting_suggestion_draft"]
-    }
 
     payload = {
         "model": LLM_MODEL,
@@ -237,30 +159,29 @@ def _run_ai_agent(email_data):
     # Retry with exponential backoff for robustness
     for i in range(3): 
         try:
-            print(f"DEBUG: Attempting Together AI API call (Retry {i+1})...")
             response = requests.post(TOGETHER_API_URL, headers=headers, data=json.dumps(payload))
             response.raise_for_status()
             response_json = response.json()
             raw_json_string = response_json['choices'][0]['message']['content'].strip()
-            print("DEBUG: AI call successful. Attempting JSON parse...")
             return json.loads(raw_json_string)
 
         except requests.exceptions.RequestException as e:
-            if response.status_code == 429:
-                print(f"ERROR: Rate limit exceeded. Retrying in {2 * (i + 1)} seconds...")
-            elif response.status_code == 401:
+            if response.status_code == 401:
                 print("CRITICAL ERROR: Together API Key unauthorized. Check TOGETHER_API_KEY.")
                 return None
-            else:
-                print(f"HTTP Error: {response.status_code}. Retrying in {2 * (i + 1)} seconds...")
             time.sleep(2 ** (i + 1)) 
         except Exception as e:
-            print(f"CRITICAL AI AGENT ERROR: Failed with unexpected error or failed to parse JSON: {e}")
+            print(f"CRITICAL AI AGENT ERROR (Node {system_prompt.splitlines()[0]}): Failed to parse JSON: {e}")
             return None
     return None
 
+# --- Main Agentic Workflow (Simulating Langgraph Routing) ---
+
 def main_agent_workflow():
-    """The main entry point for the scheduled job."""
+    """
+    The main workflow orchestrating the two agents and final email sending.
+    This simulates the power of Langgraph by explicitly routing the state based on Agent 1's output.
+    """
     
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] --- STARTING AGENTIC AI RUN ---")
 
@@ -272,63 +193,88 @@ def main_agent_workflow():
 
     print(f"STATUS: Found new email from: {from_email} (Subject: {subject})")
     
-    email_data = {
-        "from_email": from_email,
-        "subject": subject,
-        "body": body
+    full_email_content = (
+        f"FROM: {from_email}\nSUBJECT: {subject}\nBODY:\n{body}\n"
+    )
+
+    # --- NODE 1: Condition Checker (Agent 1) ---
+    print("\n--- NODE 1: Running Condition Checker ---")
+    
+    checker_schema = {
+        "type": "OBJECT",
+        "properties": {
+            "is_data_science_related": {"type": "BOOLEAN", "description": "True if the email is a specific technical Data Science/ML/Data Engineering inquiry, False otherwise."},
+            "requires_meeting": {"type": "BOOLEAN", "description": "True if the tone suggests a serious project pitch or complex query warranting a discovery call, False otherwise."},
+            "initial_analysis": {"type": "STRING", "description": "A brief internal note on why the decision was made."}
+        },
+        "required": ["is_data_science_related", "requires_meeting"]
     }
 
-    ai_output = _run_ai_agent(email_data)
+    routing_decision = _run_ai_agent(
+        system_prompt=CONDITION_CHECKER_INSTRUCTIONS, 
+        user_query=full_email_content, 
+        response_schema=checker_schema
+    )
 
-    if not ai_output:
-        print(f"CRITICAL ERROR: Agentic AI failed to produce structured output for {from_email}. Exiting.")
+    if not routing_decision:
+        print("CRITICAL ERROR: Agent 1 (Condition Checker) failed. Exiting.")
         return
 
-    # Define a robust, professional default message in case the LLM fails to generate a draft.
-    # This prevents the "Error: Technical draft missing." reply.
-    SAFE_DEFAULT_REPLY = "Thank you for reaching out. I'm currently reviewing your inquiry and will send a proper, detailed response shortly. Best regards,\nAkash BV"
-    
-    # Extract results from the JSON output
-    is_technical = ai_output.get("is_technical", False)
-    request_meeting = ai_output.get("request_meeting", False)
-    
-    # Get all three potential reply drafts, using SAFE_DEFAULT_REPLY as a fallback
-    simple_reply_draft = ai_output.get("simple_reply_draft", SAFE_DEFAULT_REPLY)
-    non_technical_reply_draft = ai_output.get("non_technical_reply_draft", SAFE_DEFAULT_REPLY)
-    meeting_suggestion_draft = ai_output.get("meeting_suggestion_draft", SAFE_DEFAULT_REPLY)
-    
-    # This is the most important log line! Check what the agent decided.
-    print(f"AGENT RESULT: Is Technical/Project? {is_technical} | Request Meeting? {request_meeting}")
+    is_ds_related = routing_decision.get("is_data_science_related", False)
+    req_meeting = routing_decision.get("requires_meeting", False)
 
-    final_subject = f"Re: {subject}"
-    reply_draft = ""
-    action_log = ""
+    print(f"ROUTER DECISION: DS Related? {is_ds_related} | Requires Meeting? {req_meeting}")
 
-    if is_technical:
-        # TECHNICAL PATH (Use simple_reply_draft or meeting_suggestion_draft)
-        if request_meeting:
-            reply_draft = meeting_suggestion_draft
-            action_log = "Condition met AND tone required meeting. Sending meeting suggestion."
-        else:
-            reply_draft = simple_reply_draft
-            action_log = "Condition met. Sending simple technical explanation."
+    # --- NODE 2: Reply Generator (Agent 2, 3, 4 logic combined) ---
+    print("\n--- NODE 2: Running Reply Generator ---")
+
+    reply_schema = {
+        "type": "OBJECT",
+        "properties": {
+            "final_reply_draft": {"type": "STRING", "description": "The complete, professional, plain-text email reply to be sent."},
+            "suggested_subject": {"type": "STRING", "description": "The new subject line for the reply (e.g., Re: Your Project Inquiry)"}
+        },
+        "required": ["final_reply_draft", "suggested_subject"]
+    }
+    
+    # Pass the decision to the Generator Agent for contextual reply creation
+    generator_query = (
+        f"The incoming email is:\n{full_email_content}\n\n"
+        f"--- AGENT 1 DECISION ---\n"
+        f"IS DATA SCIENCE RELATED: {is_ds_related}\n"
+        f"REQUIRES MEETING: {req_meeting}\n"
+        f"--- TASK ---\n"
+        f"Generate the FINAL, plain-text reply based on these decisions and the instructions."
+    )
+
+    reply_output = _run_ai_agent(
+        system_prompt=REPLY_GENERATOR_INSTRUCTIONS, 
+        user_query=generator_query, 
+        response_schema=reply_schema
+    )
+
+    if not reply_output:
+        print("CRITICAL ERROR: Agent 2 (Reply Generator) failed. Sending safe default.")
+        reply_draft = "Hello,\n\nThank you for reaching out. I'm currently reviewing your inquiry and will send a proper, detailed response shortly. Best regards,\nAkash BV"
+        final_subject = f"Re: {subject}"
     else:
-        # NON-TECHNICAL PATH (ALWAYS REPLY using non_technical_reply_draft)
-        reply_draft = non_technical_reply_draft
-        action_log = "Condition NOT met (General Inquiry). Sending polite, non-technical acknowledgement."
+        reply_draft = reply_output.get("final_reply_draft", "")
+        final_subject = reply_output.get("suggested_subject", f"Re: {subject}")
+
+    # --- FINALIZER (Email Sender) ---
+    print("\n--- FINALIZER: Sending Email ---")
     
-    # Clean up any residual HTML tags just in case the LLM still tries to use them
+    # 1. Post-process cleanup (robustness against LLM format errors)
     reply_draft = re.sub(r'<[^>]+>', '', reply_draft).strip()
 
-    # Prepend greeting if missing and attempt to send the email
+    # 2. Ensure greeting
     if not reply_draft.lower().startswith("hello") and not reply_draft.lower().startswith("hi") and not reply_draft.lower().startswith("thank you"):
          reply_draft = f"Hello,\n\n{reply_draft}"
-        
-    print(f"ACTION: {action_log}")
-    print("ACTION: Attempting to send automated reply...")
+
+    print(f"ACTION: Sending automated reply to {from_email}.")
     
     if _send_smtp_email(from_email, final_subject, reply_draft):
-        print(f"SUCCESS: Automated reply sent to {from_email}.")
+        print(f"SUCCESS: Automated reply sent with subject: {final_subject}.")
     else:
         print(f"FAILURE: Failed to send email to {from_email}.")
     
