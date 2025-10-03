@@ -21,6 +21,7 @@ IMAP_SERVER = "imap.gmail.com"
 LLM_MODEL = "mistralai/Mixtral-8x7B-Instruct-v0.1" 
 
 # --- LangSmith Configuration (For External Tracing) ---
+# This part is included for external observability if you configure LangSmith.
 langsmith_key = os.environ.get("LANGCHAIN_API_KEY")
 if langsmith_key:
     os.environ["LANGCHAIN_TRACING_V2"] = "true"
@@ -99,7 +100,7 @@ def _run_ai_agent(system_prompt, user_query, response_schema):
                 return None
             time.sleep(2 ** (i + 1)) 
         except Exception as e:
-            print(f"CRITICAL AI AGENT ERROR: Failed to parse JSON: {e}")
+            print(f"CRITICAL AI AGENT ERROR: Failed to parse JSON: {e}. Raw Content: {response_json['choices'][0]['message']['content']}")
             return None
     return None
 
@@ -109,6 +110,8 @@ def check_condition_node(state):
     """
     NODE 1: Runs the Condition Checker Agent.
     Updates the state with the routing decision and two possible drafts.
+    
+    CRITICAL FIX: If LLM fails, the original state data is preserved.
     """
     print("NODE 1: Running Condition Checker and Draft Generation...")
     
@@ -140,12 +143,13 @@ def check_condition_node(state):
     )
 
     if not ai_output:
-        # Fallback to a safe, non-technical default state
+        # Fallback Logic: Maintain existing state structure and insert safe draft
         print("CRITICAL: LLM failed. Using safe fallback draft.")
-        return {
-            "is_ds_related": False, 
-            "final_reply_draft": "Hello,\n\nThank you for reaching out. I am currently reviewing your inquiry and will send a detailed, tailored response shortly. Best regards,\nAkash BV"
-        }
+        state["is_ds_related"] = False
+        state["final_reply_draft"] = (
+            "Hello,\n\nThank you for reaching out. Due to a temporary internal issue, I cannot provide a detailed reply immediately. I will personally review your inquiry and ensure I get back to you with a tailored response shortly.\n\nBest regards,\nAkash BV"
+        )
+        return state
 
     # Agent 1 decision
     is_ds_related = ai_output.get("is_ds_related", False)
@@ -192,7 +196,8 @@ def execute_agentic_graph():
 
     # 3. Finalizer (Sending Email)
     reply_draft = final_state["final_reply_draft"]
-    final_subject = f"Re: {final_state['subject']}"
+    # This line now safely accesses 'subject' because the fallback preserves it.
+    final_subject = f"Re: {final_state['subject']}" 
     
     # Post-process cleanup and greeting
     reply_draft = re.sub(r'<[^>]+>', '', reply_draft).strip()
@@ -213,6 +218,7 @@ def execute_agentic_graph():
 def _send_smtp_email(to_email, subject, content):
     """Utility to send an email via SMTP_SSL."""
     if not EMAIL_ADDRESS or not EMAIL_PASSWORD:
+        print("ERROR: Email credentials missing. Cannot send email.")
         return False
     
     try:
@@ -234,6 +240,7 @@ def _send_smtp_email(to_email, subject, content):
 def _fetch_latest_unread_email():
     """Fetches the latest unread email details and marks it as read."""
     if not EMAIL_ADDRESS or not EMAIL_PASSWORD:
+        print("ERROR: Email credentials missing. Cannot fetch email.")
         return None, None, None
 
     try:
@@ -257,7 +264,8 @@ def _fetch_latest_unread_email():
         subject = email_message.get("Subject", "No Subject")
         
         from_match = re.search(r"<([^>]+)>", from_header)
-        from_email = from_match.group(1) if from_match else from_header
+        # Extract the email address part cleanly
+        from_email = from_match.group(1) if from_match else from_header.split()[-1].strip('<>')
         
         body = ""
         if email_message.is_multipart():
@@ -265,10 +273,10 @@ def _fetch_latest_unread_email():
                 ctype = part.get_content_type()
                 cdispo = str(part.get("Content-Disposition"))
                 if ctype == "text/plain" and "attachment" not in cdispo:
-                    body = part.get_payload(decode=True).decode()
+                    body = part.get_payload(decode=True).decode(errors='ignore')
                     break
         else:
-            body = email_message.get_payload(decode=True).decode()
+            body = email_message.get_payload(decode=True).decode(errors='ignore')
         
         return from_email, subject, body
 
