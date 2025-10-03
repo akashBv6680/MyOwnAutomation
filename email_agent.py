@@ -10,7 +10,8 @@ import time
 from email.message import EmailMessage
 
 # --- Configuration & Secrets (Loaded from GitHub Environment Variables) ---
-# NOTE: The TOGETHER_API_KEY must be set in your GitHub Repository Secrets.
+# NOTE: All secrets (TOGETHER_API_KEY, EMAIL_ADDRESS, EMAIL_PASSWORD, LANGCHAIN_API_KEY) 
+# MUST be set in your GitHub Repository Secrets.
 TOGETHER_API_URL = "https://api.together.xyz/v1/chat/completions"
 TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY") 
 EMAIL_ADDRESS = os.environ.get("EMAIL_ADDRESS")
@@ -21,6 +22,14 @@ IMAP_SERVER = "imap.gmail.com"
 # Using Mixtral for speed and complex instruction following
 LLM_MODEL = "mistralai/Mixtral-8x7B-Instruct-v0.1" 
 
+# --- LangSmith Configuration for Tracing ---
+# The API Key is now loaded from GitHub Secrets (environment variable).
+os.environ["LANGCHAIN_TRACING_V2"] = "true"
+os.environ["LANGCHAIN_API_KEY"] = os.environ.get("LANGCHAIN_API_KEY") 
+os.environ["LANGCHAIN_PROJECT"] = "Email_automation_schedule"
+print("STATUS: LangSmith tracing configured.")
+
+
 # --- Knowledge Base & Persona Configuration ---
 
 # **CRITICAL STEP: PASTE YOUR PDF CONTENT HERE.**
@@ -30,29 +39,35 @@ LLM_MODEL = "mistralai/Mixtral-8x7B-Instruct-v0.1"
 # Use a triple quote block (multiline string) to paste the entire document.
 DATA_SCIENCE_KNOWLEDGE = """
 # Data Science Project & Service Knowledge Base
-# [This is a placeholder. Paste your actual PDF content here, ensuring it is plain text.]
+#
+# INSTRUCTION: This is example data. DELETE this entire block and paste the
+# ENTIRE plain text content of your datascience_knowledge.pdf file here.
+#
 # --------------------------------------------------------------------------------
 ## 1. Core Services Offered:
-- Advanced Regression and Predictive Modeling
-- Natural Language Processing (NLP) for text classification and sentiment analysis
-- Machine Learning Model Deployment using AWS/GCP
-- Data Visualization and interactive dashboards (Streamlit/PowerBI)
+- **Predictive Modeling:** Advanced Regression, Time Series Forecasting (ARIMA, Prophet, LSTMs).
+- **Natural Language Processing (NLP):** Sentiment Analysis, Topic Modeling, Text Summarization, and custom Named Entity Recognition (NER).
+- **Computer Vision:** Object Detection, Image Segmentation, and OCR solutions using CNNs (YOLO, ResNet).
+- **MLOps and Deployment:** Model containerization (Docker), CI/CD pipelines, and hosting on AWS SageMaker, Azure ML, or GCP Vertex AI.
+- **Data Engineering:** ETL pipeline development using Python/Pandas, Spark, and SQL optimization for large datasets.
+- **Data Visualization & Reporting:** Interactive dashboards built with Streamlit, Tableau, and Power BI for executive summaries.
 
 ## 2. Standard Client Engagement Process:
-1. Initial Discovery Call (30 minutes) to define scope and goals.
-2. Data Audit and Preparation Phase.
-3. Model Development and Validation.
-4. Deployment and Monitoring.
+1. **Initial Discovery Call (45 minutes):** Define the business problem, available data sources, and establish success metrics.
+2. **Data Audit and Preparation (Phase 1):** Comprehensive review of data quality, feature engineering, and cleaning.
+3. **Model Prototyping and Validation (Phase 2):** Iterative development, hyperparameter tuning, and cross-validation.
+4. **Deployment and Handoff (Phase 3):** Integration of the final model into the client's infrastructure and comprehensive documentation/training.
+5. **Post-Deployment Monitoring:** Quarterly performance reviews and model drift detection.
 
 ## 3. Availability for Meetings:
-Available for 30-minute discovery calls on Monday, Wednesday, and Friday afternoons (IST).
+Available for 45-minute discovery calls on **Mondays, Wednesdays, and Fridays** between 2:00 PM and 5:00 PM **IST** (Indian Standard Time). Please propose two time slots within this window.
 """
 # --------------------------------------------------------------------------------
 
 # Agent 1 Condition: Determines if the email is technical enough to reply.
 AUTOMATION_CONDITION = (
     "Does the incoming email contain a technical question or an explicit project inquiry/pitch related to Data Science, "
-    "Machine Learning (ML), Deep Learning, Data Engineering, or advanced Statistical Analysis? "
+    "Machine Learning (ML), Project Details,ML project,NLP project,EDA,Insights,Meeting Discussion,Model,Deployment,Project Details,Problem statement,Business Statement,Deep Learning, Data Engineering, or advanced Statistical Analysis? "
 )
 
 # Agent 2 & 4 Persona: Defines reply style and meeting scheduling logic.
@@ -164,13 +179,13 @@ def _run_ai_agent(email_data):
     response_schema = {
         "type": "OBJECT",
         "properties": {
-            # Agent 1: Condition Checker
+            # Agent 1: Condition Checker - Boolean logic restored based on user's request
             "is_technical": {"type": "BOOLEAN", "description": "True if the email matches the technical/project condition, False otherwise."},
             
             # Agent 2: Translator/Analyzer
             "simple_reply_draft": {"type": "STRING", "description": "The primary reply to the client, simplified and non-technical, based on the knowledge base."},
             
-            # Agent 4: Meeting Scheduler
+            # Agent 4: Meeting Scheduler - Boolean logic restored based on user's request
             "request_meeting": {"type": "BOOLEAN", "description": "True if the tone suggests a serious project inquiry or pitch, False otherwise. (Triggers meeting suggestion)."},
             "meeting_suggestion_draft": {"type": "STRING", "description": "If request_meeting is true, draft a reply suggesting available dates from the knowledge base (e.g., 'Are you available this week on Monday, Wednesday, or Friday afternoon?')."},
         },
@@ -218,6 +233,7 @@ def _run_ai_agent(email_data):
 def main_agent_workflow():
     """The main entry point for the scheduled job."""
     
+    # This print statement will appear in your LangSmith trace logs as a custom log
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] --- STARTING AGENTIC AI RUN ---")
 
     from_email, subject, body = _fetch_latest_unread_email()
@@ -247,6 +263,7 @@ def main_agent_workflow():
     request_meeting = ai_output.get("request_meeting", False)
     meeting_suggestion_draft = ai_output.get("meeting_suggestion_draft", simple_reply_draft)
     
+    # Using boolean values as per the JSON schema definition
     print(f"AGENT RESULT: Is Technical/Project? {is_technical} | Request Meeting? {request_meeting}")
 
     if is_technical:
@@ -273,6 +290,7 @@ def main_agent_workflow():
     else:
         print("ACTION: Condition was NOT met. Not a technical or project inquiry. No email sent.")
     
+    # This print statement will also appear in your LangSmith trace logs
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] --- AGENTIC AI RUN COMPLETE ---")
 
 if __name__ == "__main__":
