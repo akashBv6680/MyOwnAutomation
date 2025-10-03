@@ -21,7 +21,6 @@ IMAP_SERVER = "imap.gmail.com"
 LLM_MODEL = "mistralai/Mixtral-8x7B-Instruct-v0.1" 
 
 # --- LangSmith Configuration (For External Tracing) ---
-# This part is included for external observability if you configure LangSmith.
 langsmith_key = os.environ.get("LANGCHAIN_API_KEY")
 if langsmith_key:
     os.environ["LANGCHAIN_TRACING_V2"] = "true"
@@ -31,17 +30,16 @@ else:
     os.environ["LANGCHAIN_TRACING_V2"] = "false"
 
 
-# --- System Prompts for Agentic Calls ---
+# --- System Prompts for Agentic Calls (UPDATED FOR CONVERSATIONAL TONE) ---
 
-# All Agentic roles are unified into one call with structured output for efficiency.
 AGENTIC_SYSTEM_INSTRUCTIONS = (
-    "You are a professional, Agentic AI system acting ONLY as Senior Data Scientist, Akash BV. You MUST NOT impersonate anyone else. Your task is to analyze the email and provide a structured JSON output.\n"
+    "You are a professional, Agentic AI system acting ONLY as Senior Data Scientist, Akash BV. Your tone must be warm, highly conversational, and proactive—like a detailed human colleague or expert. Your task is to analyze the email and provide a structured JSON output.\n"
     
     "**AGENT 1: CONDITION CHECKER** - Determine if the email is a specific project inquiry or technical question related to Data Science, Machine Learning, Deep Learning, Statistical Modeling, Time Series, or Data Engineering.\n"
-    "**AGENT 2/3/4: TRANSLATOR/SCHEDULER** - Generate the final reply draft based on the routing decision.\n\n"
+    "**AGENT 2/3/4: DRAFTER** - Generate a full, conversational reply draft based on the routing decision.\n\n"
     
-    "**IF TECHNICAL:** Provide a professional, value-add technical comment (based on your general LLM knowledge) and proactively suggest a meeting time (Monday, Wednesday, or Friday between 2:00 PM and 5:00 PM IST).\n"
-    "**IF NON-TECHNICAL:** Provide a polite, general acknowledgement, stating you will review the email and get back to them shortly.\n\n"
+    "**IF TECHNICAL:** Start with a positive, conversational opening. Provide a full, insightful technical comment or question related to the email topic (demonstrating expertise) and then suggest a meeting time (Monday, Wednesday, or Friday between 2:00 PM and 5:00 PM IST) to discuss the complexity further. The reply should be robust and detailed, not brief.\n"
+    "**IF NON-TECHNICAL:** Provide a full, polite, and detailed acknowledgement. Thank them specifically for the detailed email, assure them you are conducting a thorough review of the non-technical request, and clearly state when they can expect a dedicated follow-up.\n\n"
     
     "CRITICAL FORMATTING GUIDANCE:\n"
     " - All drafts (technical_reply_draft and non_technical_reply_draft) MUST be in **PLAIN TEXT** format. **DO NOT USE HTML TAGS (like <br> or <b>)**.\n"
@@ -74,7 +72,7 @@ def _run_ai_agent(system_prompt, user_query, response_schema):
     payload = {
         "model": LLM_MODEL,
         "messages": messages_payload,
-        "temperature": 0.3,
+        "temperature": 0.5, # Slightly increased temperature for more conversational flair
         "max_tokens": 2048,
         "response_mime_type": "application/json",
         "response_schema": response_schema
@@ -100,7 +98,9 @@ def _run_ai_agent(system_prompt, user_query, response_schema):
                 return None
             time.sleep(2 ** (i + 1)) 
         except Exception as e:
-            print(f"CRITICAL AI AGENT ERROR: Failed to parse JSON: {e}. Raw Content: {response_json['choices'][0]['message']['content']}")
+            # Added more debug info for parsing failures
+            raw_content = response_json.get('choices', [{}])[0].get('message', {}).get('content', 'N/A')
+            print(f"CRITICAL AI AGENT ERROR: Failed to parse JSON: {e}. Raw Content: {raw_content[:150]}...")
             return None
     return None
 
@@ -110,8 +110,6 @@ def check_condition_node(state):
     """
     NODE 1: Runs the Condition Checker Agent.
     Updates the state with the routing decision and two possible drafts.
-    
-    CRITICAL FIX: If LLM fails, the original state data is preserved.
     """
     print("NODE 1: Running Condition Checker and Draft Generation...")
     
@@ -123,8 +121,8 @@ def check_condition_node(state):
             "is_ds_related": {"type": "BOOLEAN", "description": "True if the email matches the Data Science/ML/Data Engineering condition, False otherwise."},
             
             # Agent 2/3/4 (Translator/Scheduler) - These are two mutually exclusive outputs
-            "technical_reply_draft": {"type": "STRING", "description": "A professional reply including a technical comment and meeting suggestion (USED IF is_ds_related is TRUE)."},
-            "non_technical_reply_draft": {"type": "STRING", "description": "A polite, professional acknowledgement for general emails (USED IF is_ds_related is FALSE)."},
+            "technical_reply_draft": {"type": "STRING", "description": "A professional, full, and conversational reply including a technical comment and meeting suggestion (USED IF is_ds_related is TRUE)."},
+            "non_technical_reply_draft": {"type": "STRING", "description": "A polite, professional, full, and conversational acknowledgement for general emails (USED IF is_ds_related is FALSE)."},
         },
         "required": ["is_ds_related", "technical_reply_draft", "non_technical_reply_draft"]
     }
@@ -143,11 +141,11 @@ def check_condition_node(state):
     )
 
     if not ai_output:
-        # Fallback Logic: Maintain existing state structure and insert safe draft
+        # Fallback Logic: Maintain existing state structure and insert safe draft (Crucial fix for KeyError)
         print("CRITICAL: LLM failed. Using safe fallback draft.")
         state["is_ds_related"] = False
         state["final_reply_draft"] = (
-            "Hello,\n\nThank you for reaching out. Due to a temporary internal issue, I cannot provide a detailed reply immediately. I will personally review your inquiry and ensure I get back to you with a tailored response shortly.\n\nBest regards,\nAkash BV"
+            "Hello,\n\nThank you for reaching out. Due to a temporary system issue, I cannot provide a detailed reply immediately. I want to assure you I will personally review your inquiry and follow up with a comprehensive response shortly.\n\nBest regards,\nAkash BV"
         )
         return state
 
@@ -201,7 +199,10 @@ def execute_agentic_graph():
     
     # Post-process cleanup and greeting
     reply_draft = re.sub(r'<[^>]+>', '', reply_draft).strip()
-    if not reply_draft.lower().startswith("hello") and not reply_draft.lower().startswith("hi") and not reply_draft.lower().startswith("thank you"):
+    
+    # Ensure the draft starts with a greeting if one isn't clearly present
+    if not reply_draft.lower().startswith(("hello", "hi", "dear", "thank you")):
+         # Add a friendly standard greeting
          reply_draft = f"Hello,\n\n{reply_draft}"
 
     print(f"\nFINAL ACTION: Sending reply to {final_state['from_email']}...")
@@ -273,6 +274,7 @@ def _fetch_latest_unread_email():
                 ctype = part.get_content_type()
                 cdispo = str(part.get("Content-Disposition"))
                 if ctype == "text/plain" and "attachment" not in cdispo:
+                    # Added error handling for decoding
                     body = part.get_payload(decode=True).decode(errors='ignore')
                     break
         else:
