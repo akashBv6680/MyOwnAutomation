@@ -39,14 +39,14 @@ else:
 
 # **CRITICAL STEP: PASTE YOUR PDF CONTENT HERE.**
 # --------------------------------------------------------------------------------
-# Ensure the text below contains the Time Series keywords (LSTM, ARIMA, Forecasting)
-# for the AI to recognize the email and provide a high-quality, relevant answer.
+# The knowledge base has been slightly expanded to cover more project details.
 DATA_SCIENCE_KNOWLEDGE = """
-# Data Science Project & Service Knowledge Base (Updated for Time Series)
+# Data Science Project & Service Knowledge Base (Updated for Time Series and Project Inquiries)
 #
 # --------------------------------------------------------------------------------
 ## 1. Core Services Offered:
-- **Predictive Modeling:** Advanced Regression, Time Series Forecasting (including **ARIMA**, SARIMA, Prophet, and **LSTM** for complex sequences).
+- **Predictive Modeling:** Advanced Regression, Time Series Forecasting (including **ARIMA**, SARIMA, Prophet, and **LSTM** for complex sequences). We handle complex **problem statements** across finance, logistics, and retail.
+- **Machine Learning (ML) Projects:** Full lifecycle development for all ML tasks (classification, clustering, reinforcement learning).
 - **Natural Language Processing (NLP):** Sentiment Analysis, Topic Modeling, Text Summarization, and custom Named Entity Recognition (NER).
 - **Computer Vision:** Object Detection, Image Segmentation, and OCR solutions using CNNs (YOLO, ResNet).
 - **MLOps and Deployment:** Model containerization (Docker), CI/CD pipelines, and hosting on AWS SageMaker, Azure ML, or GCP Vertex AI.
@@ -73,21 +73,20 @@ Available for 45-minute discovery calls on **Mondays, Wednesdays, and Fridays** 
 # Agent 1 Condition: Determines if the email is technical enough for a specialized reply.
 AUTOMATION_CONDITION = (
     "Does the incoming email contain a technical question or an explicit project inquiry/pitch related to Data Science, "
-    "Machine Learning (ML), Deep Learning, Data Engineering, or advanced Statistical Analysis? "
+    "Machine Learning (ML), Deep Learning, Data Engineering, advanced Statistical Analysis, or any service listed in the core offerings? "
 )
 
 # Agent 2 & 4 Persona: Defines reply style and meeting scheduling logic.
 AGENTIC_SYSTEM_INSTRUCTIONS = (
-    "You are a professional, Agentic AI system acting as Senior Data Scientist, Akash BV. Your task is to perform all required roles and provide a structured JSON output.\n"
+    "You are a professional, Agentic AI system acting ONLY as Senior Data Scientist, Akash BV. You MUST NOT impersonate anyone else or reply to third-party content (like certificates or team emails).\n"
+    "Your primary goal is to provide a helpful, professional, and courteous response to every email. Your task is to perform all required roles and provide a structured JSON output.\n"
     "1. CONDITION CHECK: Determine if the email is technical or a project pitch (based on the AUTOMATION_CONDITION).\n"
-    "2. TRANSLATOR: Generate a technical reply if needed, or a polite general reply if not technical.\n"
-    "3. TONE ANALYZER: If the email contains clear project details, a project pitch, or a serious inquiry, suggest a meeting by setting 'request_meeting' to true.\n\n"
+    "2. TRANSLATOR: Generate a reply. If technical, use the Knowledge Base for details. If non-technical, generate a polite general acknowledgement.\n"
+    "3. TONE ANALYZER: If the email contains a serious project inquiry, set 'request_meeting' to true.\n\n"
     
-    "GUIDANCE:\n"
-    " - If 'is_technical' is TRUE, use 'simple_reply_draft' and potentially 'meeting_suggestion_draft'.\n"
-    " - If 'is_technical' is FALSE, use 'non_technical_reply_draft'.\n"
-    " - USE THE KNOWLEDGE BASE for drafting technical replies and meeting availability. \n"
-    " - You MUST sign off all replies with the exact signature: 'Best regards,\\nAkash BV'."
+    "CRITICAL FORMATTING GUIDANCE:\n"
+    " - All generated drafts (simple_reply_draft, non_technical_reply_draft, meeting_suggestion_draft) MUST be in **PLAIN TEXT** format. **DO NOT USE HTML TAGS (like <br> or <b>)**.\n"
+    " - All replies MUST be signed off with the exact signature: 'Best regards,\\nAkash BV'."
 )
 
 # --- Helper Functions (No changes needed here) ---
@@ -193,7 +192,7 @@ def _run_ai_agent(email_data):
         f"FROM: {email_data['from_email']}\n"
         f"SUBJECT: {email_data['subject']}\n"
         f"BODY:\n{email_data['body']}\n\n"
-        "Analyze the email and respond using the required JSON schema below. Ensure all replies are non-technical and professional. REMEMBER: Always generate a reply draft for both technical and non-technical cases."
+        "Analyze the email and respond using the required JSON schema below. Ensure all replies are non-technical, professional, and in PLAIN TEXT."
     )
     
     messages_payload = [
@@ -211,8 +210,8 @@ def _run_ai_agent(email_data):
             # Agent 2a: Translator/Analyzer (Technical Reply)
             "simple_reply_draft": {"type": "STRING", "description": "The primary reply to the client, simplified and non-technical, based on the knowledge base (USED IF is_technical is TRUE)."},
             
-            # Agent 2b: Translator/Analyzer (General Reply) -- NEW FIELD FOR NON-TECHNICAL RESPONSE
-            "non_technical_reply_draft": {"type": "STRING", "description": "A polite, professional acknowledgement and offer to help, used if is_technical is FALSE (e.g., 'Thanks for reaching out, how can I help?')."},
+            # Agent 2b: Translator/Analyzer (General Reply) 
+            "non_technical_reply_draft": {"type": "STRING", "description": "A polite, professional acknowledgement and offer to help, used if is_technical is FALSE."},
 
             # Agent 4: Meeting Scheduler
             "request_meeting": {"type": "BOOLEAN", "description": "True if the tone suggests a serious project inquiry or pitch, False otherwise. (Triggers meeting suggestion)."},
@@ -285,14 +284,18 @@ def main_agent_workflow():
         print(f"CRITICAL ERROR: Agentic AI failed to produce structured output for {from_email}. Exiting.")
         return
 
+    # Define a robust, professional default message in case the LLM fails to generate a draft.
+    # This prevents the "Error: Technical draft missing." reply.
+    SAFE_DEFAULT_REPLY = "Thank you for reaching out. I'm currently reviewing your inquiry and will send a proper, detailed response shortly. Best regards,\nAkash BV"
+    
     # Extract results from the JSON output
     is_technical = ai_output.get("is_technical", False)
     request_meeting = ai_output.get("request_meeting", False)
     
-    # Get all three potential reply drafts
-    simple_reply_draft = ai_output.get("simple_reply_draft", "Error: Technical draft missing.")
-    non_technical_reply_draft = ai_output.get("non_technical_reply_draft", "Thank you for your email. I'll review this and get back to you shortly. Best regards,\nAkash BV")
-    meeting_suggestion_draft = ai_output.get("meeting_suggestion_draft", simple_reply_draft)
+    # Get all three potential reply drafts, using SAFE_DEFAULT_REPLY as a fallback
+    simple_reply_draft = ai_output.get("simple_reply_draft", SAFE_DEFAULT_REPLY)
+    non_technical_reply_draft = ai_output.get("non_technical_reply_draft", SAFE_DEFAULT_REPLY)
+    meeting_suggestion_draft = ai_output.get("meeting_suggestion_draft", SAFE_DEFAULT_REPLY)
     
     # This is the most important log line! Check what the agent decided.
     print(f"AGENT RESULT: Is Technical/Project? {is_technical} | Request Meeting? {request_meeting}")
@@ -314,8 +317,11 @@ def main_agent_workflow():
         reply_draft = non_technical_reply_draft
         action_log = "Condition NOT met (General Inquiry). Sending polite, non-technical acknowledgement."
     
+    # Clean up any residual HTML tags just in case the LLM still tries to use them
+    reply_draft = re.sub(r'<[^>]+>', '', reply_draft).strip()
+
     # Prepend greeting if missing and attempt to send the email
-    if not reply_draft.lower().startswith("hello") and not reply_draft.lower().startswith("hi"):
+    if not reply_draft.lower().startswith("hello") and not reply_draft.lower().startswith("hi") and not reply_draft.lower().startswith("thank you"):
          reply_draft = f"Hello,\n\n{reply_draft}"
         
     print(f"ACTION: {action_log}")
