@@ -74,7 +74,7 @@ Available for 45-minute discovery calls on **Mondays, Wednesdays, and Fridays** 
 # Agent 1 Condition: Determines if the email is technical enough to reply.
 AUTOMATION_CONDITION = (
     "Does the incoming email contain a technical question or an explicit project inquiry/pitch related to Data Science, "
-    "Machine Learning (ML), Project Details,ML project,NLP project,EDA,Insights,Meeting Discussion,Model,Deployment,Project Details,Problem statement,Business Statement,Deep Learning, Data Engineering, or advanced Statistical Analysis? "
+    "Machine Learning (ML), Deep Learning, Data Engineering, or advanced Statistical Analysis? "
 )
 
 # Agent 2 & 4 Persona: Defines reply style and meeting scheduling logic.
@@ -105,9 +105,14 @@ def _send_smtp_email(to_email, subject, content):
         
         context = ssl.create_default_context()
         with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT, context=context) as server:
+            print(f"DEBUG: Attempting to log into SMTP server {SMTP_SERVER}...")
             server.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
             server.send_message(msg)
+            print("DEBUG: Successfully logged in and sent message.")
         return True
+    except smtplib.SMTPAuthenticationError:
+        print("CRITICAL SMTP ERROR: Authentication failed. Is your EMAIL_PASSWORD a 16-character App Password?")
+        return False
     except Exception as e:
         print(f"ERROR: Failed to send email to {to_email}: {e}")
         return False
@@ -115,17 +120,22 @@ def _send_smtp_email(to_email, subject, content):
 def _fetch_latest_unread_email():
     """Fetches the latest unread email details and marks it as read."""
     if not EMAIL_ADDRESS or not EMAIL_PASSWORD:
+        print("CRITICAL ERROR: EMAIL_ADDRESS or EMAIL_PASSWORD not set in environment.")
         return None, None, None
 
     try:
+        print(f"DEBUG: Attempting to log into IMAP server {IMAP_SERVER}...")
         mail = imaplib.IMAP4_SSL(IMAP_SERVER)
         mail.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
+        print("DEBUG: IMAP login successful.")
+        
         mail.select("inbox")
         
         status, data = mail.search(None, 'UNSEEN')
         ids = data[0].split()
 
         if not ids:
+            print("STATUS: IMAP search found no unread emails.")
             return None, None, None
 
         latest_id = ids[-1]
@@ -152,10 +162,14 @@ def _fetch_latest_unread_email():
         else:
             body = email_message.get_payload(decode=True).decode()
         
+        print(f"DEBUG: Successfully processed email from {from_email} with subject: {subject[:30]}...")
         return from_email, subject, body
 
+    except imaplib.IMAP4.error as e:
+        print(f"CRITICAL IMAP ERROR: Failed to fetch email. Check your App Password and IMAP settings. Error: {e}")
+        return None, None, None
     except Exception as e:
-        print(f"CRITICAL IMAP ERROR: Failed to fetch email. Check your EMAIL_PASSWORD (App Password). Error: {e}")
+        print(f"CRITICAL IMAP ERROR: An unexpected error occurred during email fetching: {e}")
         return None, None, None
 
 def _run_ai_agent(email_data):
@@ -163,8 +177,12 @@ def _run_ai_agent(email_data):
     Calls the Together AI LLM using a structured JSON schema to simulate the four agents.
     """
     if not TOGETHER_API_KEY:
-        print("ERROR: Together AI API Key is missing.")
+        print("CRITICAL ERROR: Together AI API Key is missing. Cannot run agent.")
         return None
+
+    # Check if the knowledge base is empty
+    if len(DATA_SCIENCE_KNOWLEDGE.strip()) < 50:
+         print("WARNING: DATA_SCIENCE_KNOWLEDGE is likely empty or too short. AI response quality will suffer.")
 
     user_query = (
         f"--- TASK CONFIGURATION ---\n"
@@ -216,24 +234,26 @@ def _run_ai_agent(email_data):
     # Retry with exponential backoff for robustness
     for i in range(3): 
         try:
+            print(f"DEBUG: Attempting Together AI API call (Retry {i+1})...")
             response = requests.post(TOGETHER_API_URL, headers=headers, data=json.dumps(payload))
             response.raise_for_status()
             response_json = response.json()
             # The Mixtral response will be a string containing JSON, so we parse it
             raw_json_string = response_json['choices'][0]['message']['content'].strip()
+            print("DEBUG: AI call successful. Attempting JSON parse...")
             return json.loads(raw_json_string)
 
         except requests.exceptions.RequestException as e:
             if response.status_code == 429:
-                print(f"Rate limit exceeded. Retrying in {2 * (i + 1)} seconds...")
+                print(f"ERROR: Rate limit exceeded. Retrying in {2 * (i + 1)} seconds...")
             elif response.status_code == 401:
-                print("ERROR: Together API Key unauthorized. Check TOGETHER_API_KEY.")
+                print("CRITICAL ERROR: Together API Key unauthorized. Check TOGETHER_API_KEY.")
                 return None
             else:
                 print(f"HTTP Error: {response.status_code}. Retrying in {2 * (i + 1)} seconds...")
             time.sleep(2 ** (i + 1)) 
         except Exception as e:
-            print(f"AI Agent failed with unexpected error or failed to parse JSON: {e}")
+            print(f"CRITICAL AI AGENT ERROR: Failed with unexpected error or failed to parse JSON: {e}")
             return None
     return None
 
@@ -261,7 +281,7 @@ def main_agent_workflow():
     ai_output = _run_ai_agent(email_data)
 
     if not ai_output:
-        print(f"ERROR: Agentic AI failed to produce structured output for {from_email}. Exiting.")
+        print(f"CRITICAL ERROR: Agentic AI failed to produce structured output for {from_email}. Exiting.")
         return
 
     # Extract results from the JSON output
@@ -270,7 +290,7 @@ def main_agent_workflow():
     request_meeting = ai_output.get("request_meeting", False)
     meeting_suggestion_draft = ai_output.get("meeting_suggestion_draft", simple_reply_draft)
     
-    # Using boolean values as per the JSON schema definition
+    # This is the most important log line! Check what the agent decided.
     print(f"AGENT RESULT: Is Technical/Project? {is_technical} | Request Meeting? {request_meeting}")
 
     if is_technical:
