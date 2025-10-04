@@ -21,47 +21,33 @@ IMAP_SERVER = "imap.gmail.com"
 LLM_MODEL = "mistralai/Mixtral-8x7B-Instruct-v0.1" 
 
 # --- LangSmith Configuration (For External Tracing) ---
+# NOTE: Removed in this version for maximum execution speed, but kept variables for completeness.
 langsmith_key = os.environ.get("LANGCHAIN_API_KEY")
 if langsmith_key:
     os.environ["LANGCHAIN_TRACING_V2"] = "true"
     os.environ["LANGCHAIN_API_KEY"] = langsmith_key 
-    os.environ["LANGCHAIN_PROJECT"] = "Agentic_Email_Langgraph_Sim_V2"
+    os.environ["LANGCHAIN_PROJECT"] = "Agentic_Email_Langgraph_Sim_V3_FAST"
 else:
     os.environ["LANGCHAIN_TRACING_V2"] = "false"
 
 
-# --- System Prompts for Agentic Calls (STRICTEST FILTERING ENFORCED) ---
-
-# Agents 1-4 (Drafting and Knowledge Integration) Instructions
-AGENTIC_DRAFTING_INSTRUCTIONS = (
-    "You are a professional, Agentic AI system acting ONLY as Senior Data Scientist, Akash BV. You are equipped with a vast Data Science Knowledge Base (RAG), simulating expert level understanding of ML/DL/Stats/Time Series.\n"
-    "CRITICAL TONE: Your tone must be warm, highly conversational, and proactive. You MUST translate complex technical answers into **simple, easily understandable English** for non-technical clients. **AVOID JARGON, use analogies, and focus on business value.**\n\n"
+# --- Master Agent System Prompt (Single Call = Fastest Reply) ---
+AGENTIC_MASTER_INSTRUCTIONS = (
+    "You are the **Master Agentic AI System**, acting as the Senior Data Scientist, Akash BV. Your goal is to generate a final, polished, approved email reply in a **single step**.\n"
+    "You MUST follow ALL rules below and output a reply that meets ALL criteria immediately.\n\n"
     
-    "**AGENT 1 (Condition Checker - PRIMARY GATEWAY):** Determine if the email is a specific project inquiry or technical question. The email is considered technical/project-related if it contains **ANY** of the following key terms or similar concepts, **no matter how short or brief the email is**:\n"
-    " - **Project/Business Terms:** 'project details', 'ML Project', 'problem statement', 'Business use case', 'Ensure the problem', 'Insights', 'data strategy', 'modeling', 'data pipeline', 'predictive', 'ROI', 'optimization', 'forecasting'.\n"
-    " - **Technical Terms:** 'Data Science', 'Machine Learning', 'Deep Learning', 'Statistical Modeling', 'Time Series', 'Data Engineering', 'Neural Network', 'Model performance', 'algorithm', 'data analysis', 'datasets', 'cloud computing'.\n"
+    "**RULE 1: CLASSIFICATION (Technical Check)**\n"
+    " - Determine if the email is a specific project inquiry or technical question. The email is technical if it contains **ANY** terms like: 'Data Science', 'Machine Learning', 'Time Series', 'algorithm', 'model performance', 'forecasting', 'project details', 'data strategy', or 'datasets'.\n"
+    " - If the email is purely administrative (e.g., 'Thank you', 'Holiday schedule', 'Meeting time confirmation') or generic, you **MUST** set 'is_ds_related' to False.\n"
     
-    "If the email is purely administrative (e.g., 'Thank you,' 'Holiday schedule,' 'Meeting time confirmation'), generic, or non-technical (e.g., 'How are you?'), you **MUST** set 'is_ds_related' to False. **ABSOLUTELY DO NOT DRAFT A REPLY IF is_ds_related IS FALSE. THIS IS A HARD REQUIREMENT.**\n"
+    "**RULE 2: DRAFTING & CRITERIA (If Technical)**\n"
+    " - **Tone/Clarity:** Must be warm, highly conversational, and proactive. Use **simple English** and **AVOID JARGON**.\n"
+    " - **Technical Depth:** Must include one concise, insightful technical comment or question related to the email topic, translated into simple English.\n"
+    " - **Scheduling:** Must proactively suggest a meeting time (Monday, Wednesday, or Friday between 2:00 PM and 5:00 PM IST) in the body.\n"
+    " - **Signature:** Must use the exact signature: 'Best regards,\\nAkash BV'.\n"
+    " - **Format:** The reply MUST be in **PLAIN TEXT** (no HTML tags). The draft should be complete and ready to send.\n"
     
-    "**AGENT 2 (Drafter/Translator):** For TECHNICAL queries, generate a full, highly conversational, and simple-English reply.\n"
-    "**AGENT 3 (G-Meet Scheduler):** For TECHNICAL queries, proactively suggest a meeting time (Monday, Wednesday, or Friday between 2:00 PM and 5:00 PM IST) in the body of the reply.\n"
-    "**AGENT 4 (Knowledge Base Integrator):** Use your simulated RAG knowledge to provide a concise, insightful technical comment or question related to the email topic, ensuring the explanation is in simple English.\n"
-    
-    "CRITICAL FORMATTING GUIDANCE:\n"
-    " - All drafts MUST be in **PLAIN TEXT** format. **DO NOT USE HTML TAGS.**\n"
-    " - All replies MUST be signed off with the exact signature: 'Best regards,\\nAkash BV'."
-)
-
-# Agent 5 (Approver/Refiner) Instructions
-AGENTIC_APPROVER_INSTRUCTIONS = (
-    "You are the Main Approver Agent (Agent 5), responsible for quality control. Your task is to review a draft reply against strict criteria. If the reply is not approved, provide precise, constructive feedback to the drafting agent.\n"
-    "CRITERIA:\n"
-    "1. **Tone/Clarity:** Is the language simple, warm, and highly conversational (suitable for a non-technical client)?\n"
-    "2. **Technical Depth:** Does it contain a substantive technical comment/question (translated to simple English)?\n"
-    "3. **Scheduling:** Does it clearly propose a meeting time (Mon, Wed, or Fri, 2-5 PM IST)?\n"
-    "4. **Signature:** Does it use the correct sign-off: 'Best regards,\\nAkash BV'?\n\n"
-    
-    "If ALL criteria are met, set 'is_approved' to true. If any criterion is missed, set 'is_approved' to false and provide specific, actionable feedback in 'refinement_needed'. Use maximum 2 sentences for refinement_needed."
+    "**ACTION:** Generate the JSON output. If 'is_ds_related' is False, the 'final_reply_draft' must be an empty string."
 )
 
 # --- Graph State Definition (Simulates Langgraph State) ---
@@ -71,7 +57,6 @@ EmailAnalysisState = {
     "body": str,
     "is_ds_related": bool,
     "final_reply_draft": str,
-    "refinement_needed": str, # New field for Agent 5 feedback
 }
 
 # --- Shared LLM Utility Function (Node Execution Core) ---
@@ -101,6 +86,7 @@ def _run_ai_agent(system_prompt, user_query, response_schema, temperature=0.5):
         'Authorization': f'Bearer {TOGETHER_API_KEY}'
     }
     
+    # Exponential backoff retry loop
     for i in range(3): 
         try:
             response = requests.post(TOGETHER_API_URL, headers=headers, data=json.dumps(payload))
@@ -121,124 +107,57 @@ def _run_ai_agent(system_prompt, user_query, response_schema, temperature=0.5):
     return None
 
 
-# --- Agent 1-4: Drafting Node ---
+# --- Master Agent Node (Single Step Execution) ---
 
-def drafting_agent_node(state):
+def master_agent_node(state):
     """
-    NODE: Combined Agents 1-4. Checks condition, drafts reply, and integrates schedule/knowledge.
+    NODE: Executes classification, drafting, and final approval in ONE call for maximum speed.
     """
-    attempt = state.get('attempt', 1)
-    print(f"NODE 1-4: Running Drafting Agent (Attempt {attempt})...")
+    print("NODE MASTER: Running Single-Call Master Agent for immediate decision and reply...")
     
-    # Define the required JSON schema
+    # Define the required JSON schema for the single output
     schema = {
         "type": "OBJECT",
         "properties": {
             "is_ds_related": {"type": "BOOLEAN", "description": "True if the email is a DS/ML/Tech query, False otherwise."},
-            "technical_reply_draft": {"type": "STRING", "description": "A full, conversational, simple-English reply including the technical comment and meeting suggestion (ONLY generated if is_ds_related is TRUE)."},
+            "final_reply_draft": {"type": "STRING", "description": "The full, conversational, simple-English, approved reply including the technical comment and meeting suggestion. Must be an empty string if is_ds_related is FALSE."},
         },
-        "required": ["is_ds_related", "technical_reply_draft"]
+        "required": ["is_ds_related", "final_reply_draft"]
     }
     
-    # Contextualize the prompt with previous feedback (if it's a retry)
-    feedback_context = ""
-    if state["refinement_needed"]:
-        feedback_context = f"\n\n--- PREVIOUS FEEDBACK FROM APPROVER (Agent 5) ---\nPLEASE REVISE THE DRAFT BASED ON THIS CRITIQUE: {state['refinement_needed']}\n-----------------------------------\n"
-
     full_email_content = (
-        f"EMAIL CONTENT:\nFROM: {state['from_email']}\nSUBJECT: {state['subject']}\nBODY:\n{state['body']}\n\n"
-        f"{feedback_context}"
+        f"EMAIL CONTENT:\nFROM: {state['from_email']}\nSUBJECT: {state['subject']}\nBODY:\n{state['body']}\n"
     )
 
     ai_output = _run_ai_agent(
-        system_prompt=AGENTIC_DRAFTING_INSTRUCTIONS, 
+        system_prompt=AGENTIC_MASTER_INSTRUCTIONS, 
         user_query=full_email_content, 
         response_schema=schema,
-        temperature=0.6 
+        temperature=0.5 # A balanced temperature for creative drafting and compliance
     )
 
     if not ai_output:
-        # Fallback Logic: Crucial for preventing KeyErrors
         print("DEBUG: LLM failed to return valid JSON or API call failed. Forcing is_ds_related=False.")
-        state["is_ds_related"] = False # Treat as non-DS if we can't parse the LLM output
+        state["is_ds_related"] = False
         state["final_reply_draft"] = ""
         return state
     
-    # --- CRITICAL DEBUG LOGGING (To help diagnose filtering failures) ---
-    is_ds_related = ai_output.get("is_ds_related", False)
-    draft_snippet = ai_output.get("technical_reply_draft", "")
-    print(f"DEBUG: Agent 1 Condition Check Result: is_ds_related={is_ds_related}")
-    print(f"DEBUG: Draft Snippet: {draft_snippet[:100]}...")
-    # --- END DEBUG LOGGING ---
-
-    state["is_ds_related"] = is_ds_related
-    state["final_reply_draft"] = draft_snippet
+    # Extract results
+    state["is_ds_related"] = ai_output.get("is_ds_related", False)
+    state["final_reply_draft"] = ai_output.get("final_reply_draft", "")
     
-    # Reset refinement needed for the next Approver check
-    state["refinement_needed"] = "" 
-    state['attempt'] = attempt + 1
+    # Debugging
+    print(f"DEBUG: Master Agent Condition Check Result: is_ds_related={state['is_ds_related']}")
+    print(f"DEBUG: Draft Status: {'Generated' if state['final_reply_draft'] else 'Empty (Non-DS)'}")
     
     return state
 
-# --- Agent 5: Approver Node ---
-
-def refine_and_approve_node(state):
-    """
-    NODE: Agent 5 (Approver/Refiner). Checks the draft and provides feedback or approval.
-    """
-    if not state["is_ds_related"]:
-        # This check is redundant due to the main graph logic, but serves as a safety message
-        print("NODE 5: Non-DS email detected. Skipping approval.")
-        return state
-
-    print("NODE 5: Running Approver Agent (Agent 5) to check draft quality...")
-    
-    schema = {
-        "type": "OBJECT",
-        "properties": {
-            "is_approved": {"type": "BOOLEAN", "description": "True if the draft meets all criteria, False otherwise."},
-            "refinement_needed": {"type": "STRING", "description": "Specific, actionable feedback for the drafting agent (Max 2 sentences), only if is_approved is False."},
-        },
-        "required": ["is_approved", "refinement_needed"]
-    }
-    
-    review_query = (
-        "Review the following draft reply based on the criteria provided in your system instructions. "
-        "Draft to Review:\n"
-        "------------------------------------\n"
-        f"{state['final_reply_draft']}"
-        "\n------------------------------------"
-    )
-
-    ai_output = _run_ai_agent(
-        system_prompt=AGENTIC_APPROVER_INSTRUCTIONS, 
-        user_query=review_query, 
-        response_schema=schema,
-        temperature=0.1 # Very low temp for deterministic check/approval
-    )
-
-    if not ai_output:
-        # Emergency Approval if the Approver LLM fails to parse, to prevent infinite loops
-        print("CRITICAL: Approver LLM failed. Emergency Auto-Approving Draft.")
-        state["is_approved"] = True
-        return state
-
-    state["is_approved"] = ai_output.get("is_approved", False)
-    state["refinement_needed"] = ai_output.get("refinement_needed", "")
-    
-    if not state["is_approved"]:
-        print(f"APPROVAL STATUS: Refinement needed: {state['refinement_needed']}")
-    else:
-        print("APPROVAL STATUS: Draft Approved.")
-        
-    return state
-
-# --- Main Workflow (Simulating Graph Execution) ---
+# --- Main Workflow (Linear Execution) ---
 
 def execute_agentic_graph():
-    """Fetches email, executes the multi-agent graph with loop, and sends the reply."""
+    """Fetches email, executes the master agent once, and sends the reply immediately."""
     
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] --- STARTING AGENTIC AI GRAPH RUN V2 ---")
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] --- STARTING AGENTIC AI GRAPH RUN V3 (FASTEST MODE) ---")
 
     # 1. Fetch Email (Initial State)
     from_email, subject, body = _fetch_latest_unread_email()
@@ -254,56 +173,36 @@ def execute_agentic_graph():
         "body": body,
         "is_ds_related": False,
         "final_reply_draft": "",
-        "refinement_needed": "",
-        "is_approved": False,
-        "attempt": 1 # To track retries
     }
 
-    # 2. Main Agent Loop (Drafting and Approval)
-    MAX_ATTEMPTS = 5 # *** INCREASED MAX ATTEMPTS TO ENSURE COMPLETION ***
-    
-    for i in range(MAX_ATTEMPTS):
-        # --- Step A: Drafting (Agents 1-4) ---
-        state = drafting_agent_node(state)
+    # 2. Master Agent Call (The ONLY LLM interaction)
+    state = master_agent_node(state)
         
-        # --- Strict DS Filtering (User Requirement) ---
-        if not state["is_ds_related"]:
-            print("STATUS: Email is NON-DATA SCIENCE related or LLM failed to classify. **STRICTLY DISCARDING REPLY**.")
-            # If Agent 1 decides the condition is NOT met, we STOP immediately.
-            return
-
-        # --- Step B: Approval (Agent 5) ---
-        state = refine_and_approve_node(state)
-        
-        if state["is_approved"]:
-            print(f"STATUS: Draft approved after {i + 1} attempt(s). Breaking loop.")
-            break
-            
-        if i == MAX_ATTEMPTS - 1:
-            print("STATUS: Max attempts reached. Sending final unapproved draft as a simple fallback.")
-            # If max attempts reached, override with a safe, simple reply to prevent silence
-            state["final_reply_draft"] = (
-                "Hello,\n\nThank you for your detailed query. Due to system delays during the final review process, "
-                "I am sending this simple acknowledgment. I will follow up with the comprehensive technical "
-                "details and scheduling options within the next 24 hours.\n\nBest regards,\nAkash BV"
-            )
-            state["is_approved"] = True # Force approval to exit loop
-
     # 3. Finalizer (Sending Email)
-    if not state["is_approved"]:
-         # Should not happen due to the MAX_ATTEMPTS fallback, but good to check
-         print("FINAL FAILURE: Final state not approved. Aborting send.")
-         return
+    if not state["is_ds_related"]:
+        print("STATUS: Email is NON-DATA SCIENCE related or Master Agent failed to classify. **STRICTLY DISCARDING REPLY**.")
+        return
 
     reply_draft = state["final_reply_draft"]
     final_subject = f"Re: {state['subject']}" 
     
-    # Post-process cleanup
+    if not reply_draft:
+        print("FINAL FAILURE: Master Agent successfully classified the email as DS-related but failed to generate a draft. Aborting send.")
+        return
+
+    # *** NEW: Explicitly display the final approved draft before sending ***
+    print("\n=======================================================")
+    print(f"  AGENTIC AI: FINAL APPROVED REPLY DRAFT (PRE-SEND) to {state['from_email']}  ")
+    print("=======================================================")
+    print(reply_draft)
+    print("=======================================================\n")
+    
+    # Post-process cleanup (Ensuring proper start and removing potential remnants)
     reply_draft = re.sub(r'<[^>]+>', '', reply_draft).strip()
     if not reply_draft.lower().startswith(("hello", "hi", "dear", "thank you")):
          reply_draft = f"Hello,\n\n{reply_draft}"
 
-    print(f"\nFINAL ACTION: Sending reply to {state['from_email']}...")
+    print(f"FINAL ACTION: Sending reply to {state['from_email']}...")
     
     if _send_smtp_email(state["from_email"], final_subject, reply_draft):
         print(f"SUCCESS: Agentic reply sent.")
