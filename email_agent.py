@@ -260,7 +260,7 @@ def execute_agentic_graph():
     }
 
     # 2. Main Agent Loop (Drafting and Approval)
-    MAX_ATTEMPTS = 3
+    MAX_ATTEMPTS = 5 # *** INCREASED MAX ATTEMPTS TO ENSURE COMPLETION ***
     
     for i in range(MAX_ATTEMPTS):
         # --- Step A: Drafting (Agents 1-4) ---
@@ -283,7 +283,7 @@ def execute_agentic_graph():
             print("STATUS: Max attempts reached. Sending final unapproved draft as a simple fallback.")
             # If max attempts reached, override with a safe, simple reply to prevent silence
             state["final_reply_draft"] = (
-                "Hello,\n\nThank you for your detailed query. Due to unexpected system delays during drafting, "
+                "Hello,\n\nThank you for your detailed query. Due to system delays during the final review process, "
                 "I am sending this simple acknowledgment. I will follow up with the comprehensive technical "
                 "details and scheduling options within the next 24 hours.\n\nBest regards,\nAkash BV"
             )
