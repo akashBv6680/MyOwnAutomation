@@ -1,4 +1,4 @@
-import os
+ import os
 import smtplib
 import imaplib
 import email
@@ -30,17 +30,19 @@ else:
     os.environ["LANGCHAIN_TRACING_V2"] = "false"
 
 
-# --- System Prompts for Agentic Calls (UPDATED CRITERIA) ---
+# --- System Prompts for Agentic Calls (STRICTEST FILTERING ENFORCED) ---
 
 # Agents 1-4 (Drafting and Knowledge Integration) Instructions
 AGENTIC_DRAFTING_INSTRUCTIONS = (
     "You are a professional, Agentic AI system acting ONLY as Senior Data Scientist, Akash BV. You are equipped with a vast Data Science Knowledge Base (RAG), simulating expert level understanding of ML/DL/Stats/Time Series.\n"
     "CRITICAL TONE: Your tone must be warm, highly conversational, and proactive. You MUST translate complex technical answers into **simple, easily understandable English** for non-technical clients. **AVOID JARGON, use analogies, and focus on business value.**\n\n"
     
-    "**AGENT 1 (Condition Checker):** Determine if the email is a specific project inquiry or technical question. The email is considered technical/project-related if it contains any of the following key terms or similar concepts:\n"
-    " - **Project Terms:** 'project details', 'ML Project', 'problem statement', 'Business use case', 'Ensure the problem', 'Insights'.\n"
-    " - **Technical Terms:** 'Data Science', 'Machine Learning', 'Deep Learning', 'Statistical Modeling', 'Time Series', 'Data Engineering', or any other core datascience key term.\n"
-    "If it is NOT related to any of these, set 'is_ds_related' to False. **Only proceed if is_ds_related is True.**\n"
+    "**AGENT 1 (Condition Checker - PRIMARY GATEWAY):** Determine if the email is a specific project inquiry or technical question. The email is considered technical/project-related if it contains **ANY** of the following key terms or similar concepts, **no matter how short or brief the email is**:\n"
+    " - **Project/Business Terms:** 'project details', 'ML Project', 'problem statement', 'Business use case', 'Ensure the problem', 'Insights', 'data strategy', 'modeling', 'data pipeline', 'predictive', 'ROI', 'optimization', 'forecasting'.\n"
+    " - **Technical Terms:** 'Data Science', 'Machine Learning', 'Deep Learning', 'Statistical Modeling', 'Time Series', 'Data Engineering', 'Neural Network', 'Model performance', 'algorithm', 'data analysis', 'datasets', 'cloud computing'.\n"
+    
+    "If the email is purely administrative (e.g., 'Thank you,' 'Holiday schedule,' 'Meeting time confirmation'), generic, or non-technical (e.g., 'How are you?'), you **MUST** set 'is_ds_related' to False. **ABSOLUTELY DO NOT DRAFT A REPLY IF is_ds_related IS FALSE. THIS IS A HARD REQUIREMENT.**\n"
+    
     "**AGENT 2 (Drafter/Translator):** For TECHNICAL queries, generate a full, highly conversational, and simple-English reply.\n"
     "**AGENT 3 (G-Meet Scheduler):** For TECHNICAL queries, proactively suggest a meeting time (Monday, Wednesday, or Friday between 2:00 PM and 5:00 PM IST) in the body of the reply.\n"
     "**AGENT 4 (Knowledge Base Integrator):** Use your simulated RAG knowledge to provide a concise, insightful technical comment or question related to the email topic, ensuring the explanation is in simple English.\n"
@@ -152,18 +154,25 @@ def drafting_agent_node(state):
         system_prompt=AGENTIC_DRAFTING_INSTRUCTIONS, 
         user_query=full_email_content, 
         response_schema=schema,
-        temperature=0.6 # Increased temp for better conversational flow
+        temperature=0.6 
     )
 
     if not ai_output:
         # Fallback Logic: Crucial for preventing KeyErrors
-        print("CRITICAL: LLM failed. Using safe fallback draft.")
+        print("DEBUG: LLM failed to return valid JSON or API call failed. Forcing is_ds_related=False.")
         state["is_ds_related"] = False # Treat as non-DS if we can't parse the LLM output
         state["final_reply_draft"] = ""
         return state
+    
+    # --- CRITICAL DEBUG LOGGING (To help diagnose filtering failures) ---
+    is_ds_related = ai_output.get("is_ds_related", False)
+    draft_snippet = ai_output.get("technical_reply_draft", "")
+    print(f"DEBUG: Agent 1 Condition Check Result: is_ds_related={is_ds_related}")
+    print(f"DEBUG: Draft Snippet: {draft_snippet[:100]}...")
+    # --- END DEBUG LOGGING ---
 
-    state["is_ds_related"] = ai_output.get("is_ds_related", False)
-    state["final_reply_draft"] = ai_output.get("technical_reply_draft", "")
+    state["is_ds_related"] = is_ds_related
+    state["final_reply_draft"] = draft_snippet
     
     # Reset refinement needed for the next Approver check
     state["refinement_needed"] = "" 
@@ -178,7 +187,8 @@ def refine_and_approve_node(state):
     NODE: Agent 5 (Approver/Refiner). Checks the draft and provides feedback or approval.
     """
     if not state["is_ds_related"]:
-        print("NODE 5: Non-DS email detected. Skipping approval and stopping.")
+        # This check is redundant due to the main graph logic, but serves as a safety message
+        print("NODE 5: Non-DS email detected. Skipping approval.")
         return state
 
     print("NODE 5: Running Approver Agent (Agent 5) to check draft quality...")
@@ -258,7 +268,8 @@ def execute_agentic_graph():
         
         # --- Strict DS Filtering (User Requirement) ---
         if not state["is_ds_related"]:
-            print("STATUS: Email is NON-DATA SCIENCE related. **STRICTLY DISCARDING REPLY**.")
+            print("STATUS: Email is NON-DATA SCIENCE related or LLM failed to classify. **STRICTLY DISCARDING REPLY**.")
+            # If Agent 1 decides the condition is NOT met, we STOP immediately.
             return
 
         # --- Step B: Approval (Agent 5) ---
