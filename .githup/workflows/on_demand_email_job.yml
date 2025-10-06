@@ -19,8 +19,8 @@ jobs:
     env:
       EMAIL_USER: ${{ secrets.EMAIL_USER }}
       EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
-      # UPDATED: Changed from LLM_API_KEY to TOGETHER_API_KEY
-      TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }} 
+      # UPDATED: Changed from LLM_API_KEY to TOGETHER1_API_KEY
+      TOGETHER_API_KEY: ${{ secrets.TOGETHER1_API_KEY }} 
       TARGET_RECIPIENT: ${{ github.event.inputs.target_recipient }}
 
     steps:
