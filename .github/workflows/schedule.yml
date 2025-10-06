@@ -3,7 +3,9 @@ name: Email Automation Scheduler
 on:
   schedule:
     # Run every 15 minutes (adjust if needed)
-    - cron: '* * * * *'
+    # The cron expression below runs every minute: '* * * * *'
+    # To run every 15 minutes: '*/15 * * * *'
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -11,11 +13,12 @@ jobs:
     runs-on: ubuntu-latest
 
     services:
+      # Define the Ollama service
       ollama_service:
         image: ollama/ollama:latest
         ports:
           - 11434:11434
-        # ✅ FIXED: Proper single-line docker healthcheck syntax (no newline issue)
+        # Proper single-line docker healthcheck syntax
         options: >-
           --name ollama_service
           --health-cmd="ollama -v"
@@ -26,10 +29,14 @@ jobs:
     env:
       EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
       EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+      # TOGETHER_API_KEY is removed.
+      # OLLAMA environment variables replace the Together ones
       IMAP_SERVER: imap.gmail.com
       SMTP_SERVER: smtp.gmail.com
       OLLAMA_URL: http://ollama_service:11434/api/generate
       OLLAMA_MODEL: mistral:instruct-q4
+      # LANGCHAIN_API_KEY is optional for LangSmith tracing
+      LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }}
       PYTHONUNBUFFERED: 1
 
     steps:
@@ -44,13 +51,15 @@ jobs:
       - name: Install Dependencies
         run: |
           pip install --upgrade pip
-          pip install requests imapclient
+          # We need requests for the HTTP call to Ollama
+          pip install requests
 
-      # ✅ Wait for the Ollama service to start and become healthy
+      # Wait for the Ollama service to start and become healthy
       - name: Wait for Ollama Service
         run: |
           echo "Waiting up to 2 minutes for Ollama service health..."
           for i in {1..24}; do
+            # Use 'healthy' status check via docker inspect
             if docker inspect --format='{{json .State.Health.Status}}' ollama_service | grep -q healthy; then
               echo "Ollama service is healthy!"
               break
@@ -58,16 +67,21 @@ jobs:
               echo "Still waiting for Ollama... ($i/24)"
               sleep 5
             fi
+            if [ $i -eq 24 ]; then
+              echo "Ollama service failed to become healthy. Aborting."
+              exit 1
+            fi
           done
 
-      # ✅ Pull the Mistral model (smaller & faster)
+      # Pull the Mistral model (small and fast for quick email replies)
       - name: Pull Mistral Model
         run: |
-          echo "Pulling lightweight Mistral model..."
-          docker exec ollama_service ollama pull mistral:instruct-q4 || {
-            echo "Retrying model pull..."
+          echo "Pulling lightweight Mistral model (${{ env.OLLAMA_MODEL }})..."
+          # This command executes inside the running ollama_service container
+          docker exec ollama_service ollama pull ${{ env.OLLAMA_MODEL }} || {
+            echo "Retrying model pull after a short wait..."
             sleep 10
-            docker exec ollama_service ollama pull mistral:instruct-q4
+            docker exec ollama_service ollama pull ${{ env.OLLAMA_MODEL }}
           }
 
       - name: Run Email Agent
