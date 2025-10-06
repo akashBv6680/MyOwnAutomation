@@ -14,8 +14,12 @@ jobs:
         image: ollama/ollama:latest
         ports:
           - 11434:11434
-        # ✅ Final fix with quotes
-        options: '--name ollama_service --health-cmd="ollama -v" --health-interval=10s --health-timeout=5s --health-retries=5'
+        options: >-
+          --name ollama_service
+          --health-cmd="ollama -v"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
 
     env:
       EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
@@ -43,4 +47,11 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install requests imap
+          pip install requests imapclient
+
+      - name: Pull and preload Ollama model
+        run: |
+          echo "Waiting for Ollama service to start..."
+          sleep 5
+          docker exec ollama_service ollama pull ${LLM_MODEL}
+          docker exec
