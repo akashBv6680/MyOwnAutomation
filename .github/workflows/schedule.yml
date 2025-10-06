@@ -4,7 +4,7 @@ name: Email Automation Scheduler
 on:
   schedule:
     - cron: '* * * * *'   # Every 1 minutes
-  workflow_dispatch:       # Allows manual trigger from GitHub UI
+ 
 
 jobs:
   run-email-agent:
