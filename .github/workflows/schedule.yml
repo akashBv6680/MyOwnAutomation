@@ -2,6 +2,7 @@ name: Email Automation Scheduler
 
 on:
   schedule:
+    # Runs every 15 minutes (you can adjust to */5 * * * * if you want)
     - cron: '*/15 * * * *'
   workflow_dispatch:
 
@@ -14,24 +15,24 @@ jobs:
         image: ollama/ollama:latest
         ports:
           - 11434:11434
-        options: >
-          --name ollama_service
-          --health-cmd "ollama -v"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+        # ✅ FIXED: all on one line, no hidden newline
+        options: --name ollama_service --health-cmd="ollama -v" --health-interval=10s --health-timeout=5s --health-retries=5
 
     env:
       EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
       EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+      LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }}
       LLM_MODEL: mistral:instruct
       OLLAMA_MODEL: mistral:instruct
-      LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }}
+      IMAP_SERVER: imap.gmail.com
+      SMTP_SERVER: smtp.gmail.com
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
@@ -42,12 +43,18 @@ jobs:
           key: ollama-models-${{ env.LLM_MODEL }}
 
       - name: Install dependencies
-        run: pip install requests imapclient
-
-      - name: Preload model
         run: |
+          pip install requests imapclient
+
+      - name: Pull and preload Ollama model
+        run: |
+          echo "Waiting for Ollama service to start..."
+          sleep 5
           docker exec ollama_service ollama pull ${LLM_MODEL}
-          docker exec ollama_service ollama run ${LLM_MODEL} --prompt "Ready"
+          # Preload model to warm up and reduce response time
+          docker exec ollama_service ollama run ${LLM_MODEL} --prompt "Ready" || true
 
       - name: Run Email Agent
-        run: python email_agent.py
+        run: |
+          echo "Starting email agent..."
+          python email_agent.py
