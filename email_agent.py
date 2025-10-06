@@ -10,16 +10,15 @@ import time
 from email.message import EmailMessage
 
 # --- Configuration & Secrets ---
-# NOTE: Using the local Ollama service started in GitHub Actions.
-# The endpoint is mapped to the 'ollama_service' hostname and standard port.
+# CRITICAL FIX: Pointing to the local Ollama service.
 OLLAMA_API_URL = "http://ollama_service:11434/api/chat" 
 EMAIL_ADDRESS = os.environ.get("EMAIL_ADDRESS")
 EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD") # Your 16-character App Password
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 465
 IMAP_SERVER = "imap.gmail.com"
-# Using the Mixtral model we pull in the YAML
-LLM_MODEL = "mixtral" 
+# FIX: Switched to the much smaller Mistral 7B model (4.1 GB) for reliable download.
+LLM_MODEL = "mistral" 
 
 # --- LangSmith Configuration (Optional) ---
 langsmith_key = os.environ.get("LANGCHAIN_API_KEY")
@@ -64,18 +63,16 @@ EmailAnalysisState = {
 def _run_ai_agent(system_prompt, user_query, temperature=0.5):
     """Handles the API call with retries and structured output for Ollama."""
 
-    # Ollama uses a simplified payload compared to Together/OpenAI
     messages_payload = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_query}
     ]
 
     payload = {
-        "model": LLM_MODEL, # 'mixtral'
+        "model": LLM_MODEL,
         "messages": messages_payload,
         "temperature": temperature,
-        "options": {"num_ctx": 4096}, # Increase context for Mixtral
-        # Crucial for structured output from Ollama/Mixtral
+        "options": {"num_ctx": 4096},
         "format": "json" 
     }
     
@@ -85,29 +82,25 @@ def _run_ai_agent(system_prompt, user_query, temperature=0.5):
     for i in range(3): 
         try:
             print(f"DEBUG: Attempting to connect to Ollama at {OLLAMA_API_URL}...")
-            response = requests.post(OLLAMA_API_URL, headers=headers, data=json.dumps(payload), timeout=120)
+            response = requests.post(OLLAMA_API_URL, headers=headers, data=json.dumps(payload), timeout=180) 
             response.raise_for_status()
             
-            # Ollama response structure is different (single 'message' content)
             response_json = response.json()
             raw_content = response_json['message']['content'].strip()
 
-            # Attempt to parse the JSON output from the LLM
+            # Robust parsing of JSON that might be wrapped in prose
             try:
-                # The LLM output is a JSON string *inside* the response
-                # We need to find the first '{' and last '}'
                 json_match = re.search(r"\{.*\}", raw_content, re.DOTALL)
                 if json_match:
                     raw_json_string = json_match.group(0)
                     return json.loads(raw_json_string)
                 else:
-                    raise ValueError("No JSON object found in LLM response.")
+                    raise ValueError("No valid JSON object found in LLM response.")
             except Exception as e:
                 print(f"CRITICAL AI AGENT ERROR: Failed to parse JSON: {e}. Raw Content: {raw_content[:200]}...")
                 return None
 
         except requests.exceptions.RequestException as e:
-            # Check for initial connection errors (e.g., Ollama not fully ready)
             if 'ollama_service' in str(e) or '11434' in str(e):
                  print(f"OLLAMA CONNECTION FAILED (Attempt {i+1}): {e}. Retrying...")
             else:
@@ -128,9 +121,6 @@ def master_agent_node(state):
     NODE: Executes classification, drafting, and final approval in ONE call for maximum speed.
     """
     print("NODE MASTER: Running Single-Call Master Agent for immediate decision and reply...")
-    
-    # NOTE: Ollama does not strictly enforce the schema via API parameter like Together/OpenAI.
-    # The system prompt is used to guide the model's output to conform to JSON.
     
     full_email_content = (
         f"EMAIL CONTENT:\nFROM: {state['from_email']}\nSUBJECT: {state['subject']}\nBODY:\n{state['body']}\n"
@@ -159,8 +149,6 @@ def master_agent_node(state):
     return state
 
 # --- Main Workflow (Linear Execution) ---
-# (The rest of the code for execute_agentic_graph, _send_smtp_email, and _fetch_latest_unread_email is the same)
-# ... (omitted for brevity)
 
 def execute_agentic_graph():
     """Fetches email, executes the master agent once, and sends the reply immediately."""
@@ -206,7 +194,6 @@ def execute_agentic_graph():
     print("=======================================================\n")
     
     # Post-process cleanup (Ensuring proper start and removing potential remnants)
-    # The regex re.sub(r'<[^>]+>', '', reply_draft) is already safe, but added for completeness if the LLM hallucinated HTML
     reply_draft = re.sub(r'<[^>]+>', '', reply_draft).strip()
     if not reply_draft.lower().startswith(("hello", "hi", "dear", "thank you")):
            reply_draft = f"Hello,\n\n{reply_draft}"
