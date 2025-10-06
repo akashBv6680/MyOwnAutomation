@@ -15,15 +15,15 @@ jobs:
         image: ollama/ollama:latest
         ports:
           - 11434:11434
-        # CORRECTED FIX: Consolidate all options onto a single, clean line.
-        # This prevents the invalid argument "5\n" error.
+        # CRITICAL FIX: The robust single-line options ensure Docker start success.
         options: --name ollama_service --health-cmd "ollama -v" --health-interval 10s --health-timeout 5s --health-retries 5
 
     env:
       EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
       EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
-      # Optional: Add LangSmith key if you use it for tracing
       LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }} 
+      # Optional, but good practice to define the target model
+      LLM_MODEL: mixtral 
 
     steps:
       - name: Checkout Code
@@ -36,16 +36,17 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          # Use requirements.txt if you have one, or explicitly list packages:
           pip install requests imapclient
 
-      # 🌟 NEW: Pull the Ollama model before running the script
-      # This ensures the model is downloaded into the service container's volume.
+      # 🌟 Pull the Ollama model before running the script
       - name: Pull Ollama Model (Mixtral)
-        # Note: This is crucial and must be run using `docker exec`
-        run: docker exec ollama_service ollama pull mixtral
+        # Added a 10s sleep to let Ollama start fully before the pull command
+        run: |
+          echo "Waiting 10s for Ollama service to fully initialize..."
+          sleep 10
+          docker exec ollama_service ollama pull mixtral
         
-      # 🌟 NEW: Wait for Ollama service to be fully ready
+      # 🌟 Wait for Ollama service to be fully ready
       - name: Wait for Ollama to be available
         uses: nev7n/wait_for_response@v1
         with:
@@ -54,4 +55,5 @@ jobs:
           timeout: 300 # Give it up to 5 minutes to start and pull the model
           
       - name: Run Email Agent
+        # The Python script is now configured to use the local Ollama service.
         run: python email_agent.py
