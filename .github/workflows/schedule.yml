@@ -1,15 +1,17 @@
 name: Email Automation Scheduler
 
-# This sets the trigger to run the workflow automatically every 5 minutes
+# This workflow runs automatically every 1 minute using cron syntax.
+# CRON: "* * * * *" means run at minute 0, 1, 2, ..., 59 of every hour, every day.
 on:
   schedule:
-    - cron: '* * * * *'   # Every 1 minutes
- 
+    - cron: '*/1 * * * *' # Every 1 minute
 
 jobs:
   run-email-agent:
     runs-on: ubuntu-latest
-
+    
+    # Define environment variables loaded from the secrets.
+    # These variables are available to ALL steps within this job.
     env:
       TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
       EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
@@ -22,11 +24,13 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.11' # Using your requested version
 
       - name: Install Dependencies
         run: |
           pip install -r requirements.txt
 
       - name: Run Email Agent
+        # The Python script will automatically access TOGETHER_API_KEY, EMAIL_ADDRESS,
+        # and EMAIL_PASSWORD via os.environ.get()
         run: python email_agent.py
