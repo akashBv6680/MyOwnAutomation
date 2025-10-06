@@ -2,7 +2,7 @@ name: Email Automation Scheduler
 
 on:
   schedule:
-    # Runs every 15 minutes — adjust if needed
+    # Run every 15 minutes (adjust if needed)
     - cron: '*/15 * * * *'
   workflow_dispatch:
 
@@ -15,7 +15,7 @@ jobs:
         image: ollama/ollama:latest
         ports:
           - 11434:11434
-        # ✅ Final: safe syntax with folded scalar to avoid newline bugs
+        # ✅ FIXED: Proper single-line docker healthcheck syntax (no newline issue)
         options: >-
           --name ollama_service
           --health-cmd="ollama -v"
@@ -26,56 +26,51 @@ jobs:
     env:
       EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
       EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
-      LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }}
-      LLM_MODEL: mistral:instruct-q4
-      OLLAMA_MODEL: mistral:instruct-q4
       IMAP_SERVER: imap.gmail.com
       SMTP_SERVER: smtp.gmail.com
+      OLLAMA_URL: http://ollama_service:11434/api/generate
+      OLLAMA_MODEL: mistral:instruct-q4
+      PYTHONUNBUFFERED: 1
 
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Cache Ollama models
-        uses: actions/cache@v4
-        with:
-          path: /root/.ollama/models
-          key: ollama-models-${{ env.LLM_MODEL }}
-
-      - name: Install dependencies
+      - name: Install Dependencies
         run: |
+          pip install --upgrade pip
           pip install requests imapclient
 
-      - name: Pull and preload Ollama model
+      # ✅ Wait for the Ollama service to start and become healthy
+      - name: Wait for Ollama Service
         run: |
-          echo "Waiting for Ollama service to start..."
-          for i in {1..10}; do
-            if docker exec ollama_service which ollama >/dev/null 2>&1; then
-              echo "Ollama service is ready!"
+          echo "Waiting up to 2 minutes for Ollama service health..."
+          for i in {1..24}; do
+            if docker inspect --format='{{json .State.Health.Status}}' ollama_service | grep -q healthy; then
+              echo "Ollama service is healthy!"
               break
             else
-              echo "Waiting for Ollama to initialize... ($i/10)"
+              echo "Still waiting for Ollama... ($i/24)"
               sleep 5
             fi
           done
 
-          echo "Checking for cached model..."
-          if ! docker exec ollama_service ollama list | grep -q ${LLM_MODEL}; then
-            echo "Model not found locally, pulling..."
-            docker exec ollama_service ollama pull ${LLM_MODEL}
-          else
-            echo "Model already cached, skipping pull."
-          fi
-
-          echo "Preloading model..."
-          docker exec ollama_service ollama run ${LLM_MODEL} --prompt "Ready" || true
+      # ✅ Pull the Mistral model (smaller & faster)
+      - name: Pull Mistral Model
+        run: |
+          echo "Pulling lightweight Mistral model..."
+          docker exec ollama_service ollama pull mistral:instruct-q4 || {
+            echo "Retrying model pull..."
+            sleep 10
+            docker exec ollama_service ollama pull mistral:instruct-q4
+          }
 
       - name: Run Email Agent
         run: |
-          echo "Starting email agent..."
+          echo "Starting Email Automation..."
           python email_agent.py
