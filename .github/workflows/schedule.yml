@@ -15,17 +15,15 @@ jobs:
         image: ollama/ollama:latest
         ports:
           - 11434:11434
-        options: >
-          --name ollama_service
-          --health-cmd "ollama -v"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+        # CORRECTED FIX: Consolidate all options onto a single, clean line.
+        # This prevents the invalid argument "5\n" error.
+        options: --name ollama_service --health-cmd "ollama -v" --health-interval 10s --health-timeout 5s --health-retries 5
 
     env:
-      # Removed TOGETHER_API_KEY
       EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
       EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+      # Optional: Add LangSmith key if you use it for tracing
+      LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }} 
 
     steps:
       - name: Checkout Code
@@ -38,15 +36,14 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          pip install -r requirements.txt
-          # Add a dependency for the Ollama model itself
-          
+          # Use requirements.txt if you have one, or explicitly list packages:
+          pip install requests imapclient
+
       # 🌟 NEW: Pull the Ollama model before running the script
       # This ensures the model is downloaded into the service container's volume.
       - name: Pull Ollama Model (Mixtral)
+        # Note: This is crucial and must be run using `docker exec`
         run: docker exec ollama_service ollama pull mixtral
-        # Note: This step is crucial and must be run using `docker exec` 
-        # to target the running service container.
         
       # 🌟 NEW: Wait for Ollama service to be fully ready
       - name: Wait for Ollama to be available
