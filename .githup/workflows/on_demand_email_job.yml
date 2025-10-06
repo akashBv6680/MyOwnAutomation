@@ -1,0 +1,54 @@
+name: 📧 Manual/On-Demand Email Automation
+
+on:
+  # 1. Workflow Dispatch: This is the trigger that lets you run the job manually
+  # from the "Actions" tab in the GitHub repository interface.
+  workflow_dispatch:
+    inputs:
+      target_recipient:
+        description: 'The specific email recipient group to process (e.g., "Leads" or "Clients").'
+        required: false
+        default: 'Leads'
+
+jobs:
+  run_email_job:
+    # Use the latest stable environment
+    runs-on: ubuntu-latest
+    
+    # 2. Define environment variables, ensuring your secrets are used
+    env:
+      EMAIL_USER: ${{ secrets.EMAIL_USER }}
+      EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+      TARGET_RECIPIENT: ${{ github.event.inputs.target_recipient }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # 3. Setup Python Environment
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10' # Use your preferred Python version
+
+      - name: Install dependencies
+        # This assumes your email automation script requires dependencies
+        run: |
+          pip install -r requirements.txt 
+
+      # 4. Execute the Python Automation Script
+      - name: Run On-Demand Email Script
+        # This is where your main email automation script is executed.
+        run: |
+          echo "Starting email automation for group: $TARGET_RECIPIENT"
+          # Replace 'your_automation_script.py' with the name of your Python file
+          python your_automation_script.py --group $TARGET_RECIPIENT
+
+      # 5. Simple Check/Log (Optional but recommended)
+      - name: Log Completion Status
+        if: success()
+        run: echo "Automation successfully completed and emails processed."
+        
+      - name: Log Failure Status
+        if: failure()
+        run: echo "Automation failed. Check script logs for errors."
