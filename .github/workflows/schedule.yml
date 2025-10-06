@@ -2,58 +2,52 @@ name: Email Automation Scheduler
 
 on:
   schedule:
-    - cron: '* * * * *'  # Runs every 5 minutes
+    - cron: '*/15 * * * *'
   workflow_dispatch:
 
 jobs:
   run-email-agent:
     runs-on: ubuntu-latest
-    
-    # Define the Ollama Service Container
+
     services:
       ollama_service:
         image: ollama/ollama:latest
         ports:
           - 11434:11434
-        # FIX: Robust, single-line options for Docker start success.
-        options: --name ollama_service --health-cmd "ollama -v" --health-interval 10s --health-timeout 5s --health-retries 5
+        options: >
+          --name ollama_service
+          --health-cmd "ollama -v"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     env:
       EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
       EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
-      LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }} 
-      LLM_MODEL: mistral # Set the model name in the environment
-      
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+      LLM_MODEL: mistral:instruct
+      OLLAMA_MODEL: mistral:instruct
+      LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }}
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install Dependencies
-        run: |
-          pip install requests imapclient
-
-      # FIX: Pull the smaller Mistral model (4.1 GB) for reliable execution
-      - name: Pull Ollama Model (Mistral)
-        run: |
-          echo "Waiting 10s for Ollama service to fully initialize..."
-          sleep 10
-          # CRITICAL FIX: Changed from 'mixtral' to 'mistral'
-          docker exec ollama_service ollama pull mistral
-        
-      # Wait for Ollama service to be fully ready
-      - name: Wait for Ollama to be available
-        uses: nev7n/wait_for_response@v1
+      - name: Cache Ollama models
+        uses: actions/cache@v4
         with:
-          url: http://ollama_service:11434/
-          responseCode: 200
-          # Increased timeout to 7 minutes to accommodate *some* download time
-          timeout: 420 
-          
+          path: ~/.ollama/models
+          key: ollama-models-${{ env.LLM_MODEL }}
+
+      - name: Install dependencies
+        run: pip install requests imapclient
+
+      - name: Preload model
+        run: |
+          docker exec ollama_service ollama pull ${LLM_MODEL}
+          docker exec ollama_service ollama run ${LLM_MODEL} --prompt "Ready"
+
       - name: Run Email Agent
-        # The Python script will now connect to the local ollama_service
         run: python email_agent.py
