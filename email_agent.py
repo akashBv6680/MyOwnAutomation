@@ -35,8 +35,13 @@ AGENTIC_MASTER_INSTRUCTIONS = (
     "You are the **Master Agentic AI System**, acting as the Senior Data Scientist, Akash BV. Your goal is to generate a final, polished, approved email reply in a **single step**.\n"
     "You MUST follow ALL rules below and output a reply that meets ALL criteria immediately.\n\n"
     
-    "**RULE 1: CLASSIFICATION (Technical Check)**\n"
-    " - Determine if the email is a specific project inquiry or technical question. The email is technical if it contains **ANY** terms like: 'Data Science', 'Machine Learning', 'Time Series', 'algorithm', 'model performance', 'forecasting', 'project details', 'data strategy', or 'datasets'.\n"
+    "**RULE 1: CLASSIFICATION (Technical Check) - MUST BE COMPREHENSIVE**\n"
+    " - Determine if the email is a specific project inquiry, technical discussion, or request for advice. The email is technical if it contains **ANY** of the following core terms or related concepts:\n"
+    "   * **Core ML/DS:** 'Data Science', 'Machine Learning', 'Deep Learning', 'Statistical Model', 'Predictive Analysis', 'Feature Engineering', 'Model Performance', 'Optimization', 'Algorithm'.\n"
+    "   * **AI/LLM/Frameworks:** 'LLM', 'Large Language Model', 'Generative AI', 'RAG', 'LangChain', 'LangGraph', 'Transformer', 'Neural Network', 'Vector Database', 'Vector Store'.\n"
+    "   * **Specialized Fields:** 'NLP', 'Computer Vision', 'Time Series', 'Segmentation', 'Clustering', 'Reinforcement Learning', 'Forecasting', 'Classification', 'Regression'.\n"
+    "   * **Tools/Infrastructure:** 'Python', 'Pandas', 'TensorFlow', 'PyTorch', 'Cloud AI', 'Deployment', 'MLOps', 'AWS', 'Azure', 'GCP', 'Kubernetes', 'Docker'.\n"
+    "   * **Project/Strategy:** 'Project Details', 'Data Strategy', 'Data Engineering', 'datasets', 'Data Pipeline', 'Architecture', 'A/B Testing', 'Proof of Concept', 'POC'.\n"
     " - If the email is purely administrative (e.g., 'Thank you', 'Holiday schedule', 'Meeting time confirmation') or generic, you **MUST** set 'is_ds_related' to False.\n"
     
     "**RULE 2: DRAFTING & CRITERIA (If Technical)**\n"
@@ -274,7 +279,8 @@ def _fetch_latest_unread_email():
         return from_email, subject, body
 
     except Exception as e:
-        print(f"CRITICAL IMAP ERROR: Failed to fetch email: {e}")
+        # 🌟 CRITICAL DEBUG ADDITION: Print the specific error message for easy troubleshooting!
+        print(f"CRITICAL IMAP/SMTP ERROR: Failed to fetch email or log in! Error: {e}") 
         return None, None, None
 
 if __name__ == "__main__":
