@@ -10,18 +10,15 @@ import time
 from email.message import EmailMessage
 
 # --- Configuration & Secrets (Loaded from GitHub Environment Variables) ---
-# NOTE: Removed TOGETHER_API_KEY, TOGETHER_API_URL
-# OLLAMA_URL and OLLAMA_MODEL are now loaded from the GitHub Actions environment
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/generate")
-LLM_MODEL = os.environ.get("OLLAMA_MODEL", "mistral:instruct-q4")
+LLM_MODEL = os.environ.get("OLLAMA_MODEL", "mistral:7b-instruct-v0.2-q4_0") # Fallback to corrected tag
 EMAIL_ADDRESS = os.environ.get("EMAIL_ADDRESS")
-EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD") # Your 16-character App Password
+EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD") 
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 465
 IMAP_SERVER = "imap.gmail.com"
 
 # --- LangSmith Configuration for Tracing ---
-# Keeping LangSmith configuration if the secret is available
 langsmith_key = os.environ.get("LANGCHAIN_API_KEY")
 
 if langsmith_key:
@@ -35,9 +32,6 @@ else:
 
 
 # --- Knowledge Base & Persona Configuration ---
-
-# **CRITICAL STEP: PASTE YOUR PDF CONTENT HERE.**
-# --------------------------------------------------------------------------------
 DATA_SCIENCE_KNOWLEDGE = """
 # Data Science Project & Service Knowledge Base (Updated for Time Series and Project Inquiries)
 #
@@ -193,7 +187,7 @@ def _run_ai_agent(email_data):
     if len(DATA_SCIENCE_KNOWLEDGE.strip()) < 50:
         print("WARNING: DATA_SCIENCE_KNOWLEDGE is likely empty or too short. AI response quality will suffer.")
 
-    # Ollama Prompt Structure (Uses the full prompt method for structured JSON)
+    # Ollama Prompt Structure (Optimized for JSON output)
     prompt = (
         f"**SYSTEM INSTRUCTIONS**:\n{AGENTIC_SYSTEM_INSTRUCTIONS}\n\n"
         f"**KNOWLEDGE BASE (For context and reply)**:\n{DATA_SCIENCE_KNOWLEDGE}\n\n"
@@ -216,7 +210,7 @@ def _run_ai_agent(email_data):
         "options": {
             "temperature": 0.3,
             "top_p": 0.9,
-            "num_predict": 2048 # Max tokens equivalent
+            "num_predict": 2048
         }
     }
     
@@ -228,15 +222,13 @@ def _run_ai_agent(email_data):
     for i in range(3):
         try:
             print(f"DEBUG: Attempting Ollama API call to {OLLAMA_URL} (Retry {i+1})...")
-            # Using a long timeout since the model might need to load on the first call
             response = requests.post(OLLAMA_URL, headers=headers, data=json.dumps(payload), timeout=180) 
             response.raise_for_status()
             response_json = response.json()
             
-            # The final response from Ollama is under the 'response' key
             raw_content = response_json.get('response', '').strip()
             
-            # Extract the pure JSON block (Mistral can wrap the JSON in text)
+            # Extract the pure JSON block
             json_match = re.search(r'\{.*\}', raw_content, re.DOTALL)
             
             if json_match:
@@ -280,11 +272,9 @@ def main_agent_workflow():
         print(f"CRITICAL ERROR: Agentic AI failed to produce structured output for {from_email}. Exiting.")
         return
 
-    # Define a robust, professional default message in case the LLM fails to generate a draft.
     SAFE_DEFAULT_REPLY = "Thank you for reaching out. I'm currently reviewing your inquiry and will send a proper, detailed response shortly. Best regards,\nAkash BV"
     
-    # Extract results from the JSON output. We must handle boolean strings from JSON
-    # The output from the LLM is often a string, so we explicitly check for "true" (case-insensitive)
+    # Extract results and handle potential string/boolean mismatch from LLM
     is_technical = ai_output.get("is_technical", "False")
     if isinstance(is_technical, str):
          is_technical = is_technical.lower() == "true"
@@ -294,7 +284,6 @@ def main_agent_workflow():
         request_meeting = request_meeting.lower() == "true"
 
     
-    # Get all three potential reply drafts, using SAFE_DEFAULT_REPLY as a fallback
     simple_reply_draft = ai_output.get("simple_reply_draft", SAFE_DEFAULT_REPLY)
     non_technical_reply_draft = ai_output.get("non_technical_reply_draft", SAFE_DEFAULT_REPLY)
     meeting_suggestion_draft = ai_output.get("meeting_suggestion_draft", SAFE_DEFAULT_REPLY)
@@ -306,7 +295,6 @@ def main_agent_workflow():
     action_log = ""
 
     if is_technical:
-        # TECHNICAL PATH (Use simple_reply_draft or meeting_suggestion_draft)
         if request_meeting:
             reply_draft = meeting_suggestion_draft
             action_log = "Condition met AND tone required meeting. Sending meeting suggestion."
@@ -314,14 +302,11 @@ def main_agent_workflow():
             reply_draft = simple_reply_draft
             action_log = "Condition met. Sending simple technical explanation."
     else:
-        # NON-TECHNICAL PATH (ALWAYS REPLY using non_technical_reply_draft)
         reply_draft = non_technical_reply_draft
         action_log = "Condition NOT met (General Inquiry). Sending polite, non-technical acknowledgement."
     
-    # Clean up any residual HTML tags and ensure final signature
     reply_draft = re.sub(r'<[^>]+>', '', reply_draft).strip()
 
-    # Prepend greeting if missing
     if not reply_draft.lower().startswith("hello") and not reply_draft.lower().startswith("hi") and not reply_draft.lower().startswith("thank you"):
           reply_draft = f"Hello,\n\n{reply_draft}"
         
