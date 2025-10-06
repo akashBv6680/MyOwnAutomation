@@ -2,7 +2,7 @@ name: Email Automation Scheduler
 
 on:
   schedule:
-    # Runs every 15 minutes (adjust to your preference)
+    # Runs every 15 minutes — adjust if needed
     - cron: '*/15 * * * *'
   workflow_dispatch:
 
@@ -15,7 +15,7 @@ jobs:
         image: ollama/ollama:latest
         ports:
           - 11434:11434
-        # ✅ Safe single-line options using folded scalar (>-) to avoid newline bugs
+        # ✅ Final: safe syntax with folded scalar to avoid newline bugs
         options: >-
           --name ollama_service
           --health-cmd="ollama -v"
@@ -27,8 +27,8 @@ jobs:
       EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
       EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
       LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }}
-      LLM_MODEL: mistral:instruct
-      OLLAMA_MODEL: mistral:instruct
+      LLM_MODEL: mistral:instruct-q4
+      OLLAMA_MODEL: mistral:instruct-q4
       IMAP_SERVER: imap.gmail.com
       SMTP_SERVER: smtp.gmail.com
 
@@ -44,7 +44,7 @@ jobs:
       - name: Cache Ollama models
         uses: actions/cache@v4
         with:
-          path: ~/.ollama/models
+          path: /root/.ollama/models
           key: ollama-models-${{ env.LLM_MODEL }}
 
       - name: Install dependencies
@@ -64,14 +64,15 @@ jobs:
             fi
           done
 
-          echo "Pulling model ${LLM_MODEL}..."
-          if ! docker exec ollama_service ollama pull ${LLM_MODEL}; then
-            echo "Model pull failed — retrying once after 15s..."
-            sleep 15
+          echo "Checking for cached model..."
+          if ! docker exec ollama_service ollama list | grep -q ${LLM_MODEL}; then
+            echo "Model not found locally, pulling..."
             docker exec ollama_service ollama pull ${LLM_MODEL}
+          else
+            echo "Model already cached, skipping pull."
           fi
 
-          echo "Preloading model to warm up..."
+          echo "Preloading model..."
           docker exec ollama_service ollama run ${LLM_MODEL} --prompt "Ready" || true
 
       - name: Run Email Agent
