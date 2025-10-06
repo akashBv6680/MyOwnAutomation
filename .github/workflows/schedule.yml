@@ -2,6 +2,7 @@ name: Email Automation Scheduler
 
 on:
   schedule:
+    # Runs every 15 minutes (adjust to your preference)
     - cron: '*/15 * * * *'
   workflow_dispatch:
 
@@ -14,6 +15,7 @@ jobs:
         image: ollama/ollama:latest
         ports:
           - 11434:11434
+        # ✅ Safe single-line options using folded scalar (>-) to avoid newline bugs
         options: >-
           --name ollama_service
           --health-cmd="ollama -v"
@@ -52,6 +54,27 @@ jobs:
       - name: Pull and preload Ollama model
         run: |
           echo "Waiting for Ollama service to start..."
-          sleep 5
-          docker exec ollama_service ollama pull ${LLM_MODEL}
-          docker exec
+          for i in {1..10}; do
+            if docker exec ollama_service which ollama >/dev/null 2>&1; then
+              echo "Ollama service is ready!"
+              break
+            else
+              echo "Waiting for Ollama to initialize... ($i/10)"
+              sleep 5
+            fi
+          done
+
+          echo "Pulling model ${LLM_MODEL}..."
+          if ! docker exec ollama_service ollama pull ${LLM_MODEL}; then
+            echo "Model pull failed — retrying once after 15s..."
+            sleep 15
+            docker exec ollama_service ollama pull ${LLM_MODEL}
+          fi
+
+          echo "Preloading model to warm up..."
+          docker exec ollama_service ollama run ${LLM_MODEL} --prompt "Ready" || true
+
+      - name: Run Email Agent
+        run: |
+          echo "Starting email agent..."
+          python email_agent.py
