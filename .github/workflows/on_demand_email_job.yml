@@ -39,4 +39,4 @@ jobs:
           echo "Starting email automation for group: $TARGET_RECIPIENT"
           # Pass the recipient variable to your Python script if needed, 
           # or simply let the script run with the secured environment variables.
-          python your_automation_script.py
+          python agentic_email_handler.py
