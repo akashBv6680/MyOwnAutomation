@@ -1,17 +1,29 @@
 name: Email Automation Scheduler
 
-# This sets the trigger to run the workflow automatically every 5 minutes
 on:
   schedule:
-    - cron: '* * * * *'   # Every 1 minutes
-  workflow_dispatch:       # Allows manual trigger from GitHub UI
+    - cron: '*/5 * * * *'  # Changed to every 5 minutes (GitHub best practice)
+  workflow_dispatch:
 
 jobs:
   run-email-agent:
     runs-on: ubuntu-latest
+    
+    # 🌟 NEW: Define the Ollama Service Container
+    services:
+      ollama_service:
+        image: ollama/ollama:latest
+        ports:
+          - 11434:11434
+        options: >
+          --name ollama_service
+          --health-cmd "ollama -v"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     env:
-      TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
+      # Removed TOGETHER_API_KEY
       EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
       EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
 
@@ -27,6 +39,22 @@ jobs:
       - name: Install Dependencies
         run: |
           pip install -r requirements.txt
-
+          # Add a dependency for the Ollama model itself
+          
+      # 🌟 NEW: Pull the Ollama model before running the script
+      # This ensures the model is downloaded into the service container's volume.
+      - name: Pull Ollama Model (Mixtral)
+        run: docker exec ollama_service ollama pull mixtral
+        # Note: This step is crucial and must be run using `docker exec` 
+        # to target the running service container.
+        
+      # 🌟 NEW: Wait for Ollama service to be fully ready
+      - name: Wait for Ollama to be available
+        uses: nev7n/wait_for_response@v1
+        with:
+          url: http://ollama_service:11434/
+          responseCode: 200
+          timeout: 300 # Give it up to 5 minutes to start and pull the model
+          
       - name: Run Email Agent
         run: python email_agent.py
