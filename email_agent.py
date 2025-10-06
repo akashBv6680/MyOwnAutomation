@@ -10,23 +10,23 @@ import time
 from email.message import EmailMessage
 
 # --- Configuration & Secrets ---
-# NOTE: All secrets MUST be set in your GitHub Repository Secrets.
-TOGETHER_API_URL = "https://api.together.xyz/v1/chat/completions"
-TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY") 
+# NOTE: Using the local Ollama service started in GitHub Actions.
+# The endpoint is mapped to the 'ollama_service' hostname and standard port.
+OLLAMA_API_URL = "http://ollama_service:11434/api/chat" 
 EMAIL_ADDRESS = os.environ.get("EMAIL_ADDRESS")
 EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD") # Your 16-character App Password
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 465
 IMAP_SERVER = "imap.gmail.com"
-LLM_MODEL = "mistralai/Mixtral-8x7B-Instruct-v0.1" 
+# Using the Mixtral model we pull in the YAML
+LLM_MODEL = "mixtral" 
 
-# --- LangSmith Configuration (For External Tracing) ---
-# NOTE: Removed in this version for maximum execution speed, but kept variables for completeness.
+# --- LangSmith Configuration (Optional) ---
 langsmith_key = os.environ.get("LANGCHAIN_API_KEY")
 if langsmith_key:
     os.environ["LANGCHAIN_TRACING_V2"] = "true"
     os.environ["LANGCHAIN_API_KEY"] = langsmith_key 
-    os.environ["LANGCHAIN_PROJECT"] = "Agentic_Email_Langgraph_Sim_V3_FAST"
+    os.environ["LANGCHAIN_PROJECT"] = "Agentic_Email_Ollama_V4_FIXED"
 else:
     os.environ["LANGCHAIN_TRACING_V2"] = "false"
 
@@ -61,49 +61,63 @@ EmailAnalysisState = {
 
 # --- Shared LLM Utility Function (Node Execution Core) ---
 
-def _run_ai_agent(system_prompt, user_query, response_schema, temperature=0.5):
-    """Handles the API call with retries and structured output."""
-    if not TOGETHER_API_KEY:
-        print("CRITICAL ERROR: Together AI API Key is missing. Cannot run agent.")
-        return None
+def _run_ai_agent(system_prompt, user_query, temperature=0.5):
+    """Handles the API call with retries and structured output for Ollama."""
 
+    # Ollama uses a simplified payload compared to Together/OpenAI
     messages_payload = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_query}
     ]
 
     payload = {
-        "model": LLM_MODEL,
+        "model": LLM_MODEL, # 'mixtral'
         "messages": messages_payload,
         "temperature": temperature,
-        "max_tokens": 2048,
-        "response_mime_type": "application/json",
-        "response_schema": response_schema
+        "options": {"num_ctx": 4096}, # Increase context for Mixtral
+        # Crucial for structured output from Ollama/Mixtral
+        "format": "json" 
     }
     
-    headers = {
-        'Content-Type': 'application/json',
-        'Authorization': f'Bearer {TOGETHER_API_KEY}'
-    }
+    headers = {'Content-Type': 'application/json'}
     
     # Exponential backoff retry loop
     for i in range(3): 
         try:
-            response = requests.post(TOGETHER_API_URL, headers=headers, data=json.dumps(payload))
+            print(f"DEBUG: Attempting to connect to Ollama at {OLLAMA_API_URL}...")
+            response = requests.post(OLLAMA_API_URL, headers=headers, data=json.dumps(payload), timeout=120)
             response.raise_for_status()
+            
+            # Ollama response structure is different (single 'message' content)
             response_json = response.json()
-            raw_json_string = response_json['choices'][0]['message']['content'].strip()
-            return json.loads(raw_json_string)
+            raw_content = response_json['message']['content'].strip()
+
+            # Attempt to parse the JSON output from the LLM
+            try:
+                # The LLM output is a JSON string *inside* the response
+                # We need to find the first '{' and last '}'
+                json_match = re.search(r"\{.*\}", raw_content, re.DOTALL)
+                if json_match:
+                    raw_json_string = json_match.group(0)
+                    return json.loads(raw_json_string)
+                else:
+                    raise ValueError("No JSON object found in LLM response.")
+            except Exception as e:
+                print(f"CRITICAL AI AGENT ERROR: Failed to parse JSON: {e}. Raw Content: {raw_content[:200]}...")
+                return None
 
         except requests.exceptions.RequestException as e:
-            if response.status_code == 401:
-                print("CRITICAL ERROR: Together API Key unauthorized. Check TOGETHER_API_KEY.")
-                return None
+            # Check for initial connection errors (e.g., Ollama not fully ready)
+            if 'ollama_service' in str(e) or '11434' in str(e):
+                 print(f"OLLAMA CONNECTION FAILED (Attempt {i+1}): {e}. Retrying...")
+            else:
+                 print(f"API Request FAILED (Attempt {i+1}): {e}. Retrying...")
             time.sleep(2 ** (i + 1)) 
         except Exception as e:
-            raw_content = response_json.get('choices', [{}])[0].get('message', {}).get('content', 'N/A')
-            print(f"CRITICAL AI AGENT ERROR: Failed to parse JSON: {e}. Raw Content: {raw_content[:150]}...")
+            print(f"General ERROR: {e}")
             return None
+            
+    print("CRITICAL ERROR: Failed to get a response from Ollama after all retries.")
     return None
 
 
@@ -115,15 +129,8 @@ def master_agent_node(state):
     """
     print("NODE MASTER: Running Single-Call Master Agent for immediate decision and reply...")
     
-    # Define the required JSON schema for the single output
-    schema = {
-        "type": "OBJECT",
-        "properties": {
-            "is_ds_related": {"type": "BOOLEAN", "description": "True if the email is a DS/ML/Tech query, False otherwise."},
-            "final_reply_draft": {"type": "STRING", "description": "The full, conversational, simple-English, approved reply including the technical comment and meeting suggestion. Must be an empty string if is_ds_related is FALSE."},
-        },
-        "required": ["is_ds_related", "final_reply_draft"]
-    }
+    # NOTE: Ollama does not strictly enforce the schema via API parameter like Together/OpenAI.
+    # The system prompt is used to guide the model's output to conform to JSON.
     
     full_email_content = (
         f"EMAIL CONTENT:\nFROM: {state['from_email']}\nSUBJECT: {state['subject']}\nBODY:\n{state['body']}\n"
@@ -132,8 +139,7 @@ def master_agent_node(state):
     ai_output = _run_ai_agent(
         system_prompt=AGENTIC_MASTER_INSTRUCTIONS, 
         user_query=full_email_content, 
-        response_schema=schema,
-        temperature=0.5 # A balanced temperature for creative drafting and compliance
+        temperature=0.5
     )
 
     if not ai_output:
@@ -153,11 +159,13 @@ def master_agent_node(state):
     return state
 
 # --- Main Workflow (Linear Execution) ---
+# (The rest of the code for execute_agentic_graph, _send_smtp_email, and _fetch_latest_unread_email is the same)
+# ... (omitted for brevity)
 
 def execute_agentic_graph():
     """Fetches email, executes the master agent once, and sends the reply immediately."""
     
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] --- STARTING AGENTIC AI GRAPH RUN V3 (FASTEST MODE) ---")
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] --- STARTING AGENTIC AI GRAPH RUN V4 (OLLAMA FIXED) ---")
 
     # 1. Fetch Email (Initial State)
     from_email, subject, body = _fetch_latest_unread_email()
@@ -198,9 +206,10 @@ def execute_agentic_graph():
     print("=======================================================\n")
     
     # Post-process cleanup (Ensuring proper start and removing potential remnants)
+    # The regex re.sub(r'<[^>]+>', '', reply_draft) is already safe, but added for completeness if the LLM hallucinated HTML
     reply_draft = re.sub(r'<[^>]+>', '', reply_draft).strip()
     if not reply_draft.lower().startswith(("hello", "hi", "dear", "thank you")):
-         reply_draft = f"Hello,\n\n{reply_draft}"
+           reply_draft = f"Hello,\n\n{reply_draft}"
 
     print(f"FINAL ACTION: Sending reply to {state['from_email']}...")
     
@@ -252,7 +261,7 @@ def _fetch_latest_unread_email():
             return None, None, None
 
         latest_id = ids[-1]
-        mail.store(latest_id, '+FLAGS', '\\Seen') 
+        mail.store(latest_id, '+FLAGS', '\\Seen')
         
         status, msg_data = mail.fetch(latest_id, "(RFC822)")
         raw_email = msg_data[0][1]
