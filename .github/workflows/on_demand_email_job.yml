@@ -1,0 +1,42 @@
+name: 📧 Manual/On-Demand Email Automation
+
+# This trigger allows the workflow to be run manually from the GitHub Actions UI.
+on:
+  workflow_dispatch:
+    inputs:
+      target_recipient:
+        description: 'Target group (e.g., Leads, VIPs) for the email run'
+        required: false
+        default: 'Leads'
+
+jobs:
+  run_on_demand_email_script:
+    runs-on: ubuntu-latest
+    
+    # Securely pass secrets and the API key as environment variables
+    env:
+      EMAIL_USER: ${{ secrets.EMAIL_USER }}
+      EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+      TOGETHER_API_KEY: ${{ secrets.TOGETHER1_API_KEY }} 
+      # Pass the user input as an environment variable
+      TARGET_RECIPIENT: ${{ github.event.inputs.target_recipient }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        # This will use the updated requirements.txt file
+        run: pip install -r requirements.txt
+
+      - name: Run On-Demand Email Script
+        run: |
+          echo "Starting email automation for group: $TARGET_RECIPIENT"
+          # Pass the recipient variable to your Python script if needed, 
+          # or simply let the script run with the secured environment variables.
+          python your_automation_script.py
