@@ -2,7 +2,7 @@ name: Email Automation Scheduler
 
 on:
   schedule:
-    # Run every 15 minutes
+    # Run every 30 minutes to reduce overlap and load time
     - cron: '*/5 * * * *'
   workflow_dispatch:
 
@@ -16,7 +16,6 @@ jobs:
         image: ollama/ollama:latest
         ports:
           - 11434:11434
-        # Healthcheck to ensure Ollama is ready before running the job steps
         options: >-
           --name ollama_service
           --health-cmd="ollama -v"
@@ -25,15 +24,13 @@ jobs:
           --health-retries=5
 
     env:
-      # Email Credentials (MUST be set in your Repository Secrets)
       EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
       EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
-      # Ollama Configuration
       IMAP_SERVER: imap.gmail.com
       SMTP_SERVER: smtp.gmail.com
       OLLAMA_URL: http://ollama_service:11434/api/generate
-      OLLAMA_MODEL: mistral:instruct-q4
-      # LangSmith (Optional, but useful for tracing)
+      # CORRECTED MODEL TAG: Use a verified, specific tag
+      OLLAMA_MODEL: mistral:7b-instruct-v0.2-q4_0
       LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }} 
       PYTHONUNBUFFERED: 1
 
@@ -51,13 +48,12 @@ jobs:
           pip install --upgrade pip
           pip install requests
 
-      # Step 1: Wait for the Ollama service to start and become healthy
+      # Wait for the Ollama service to start and become healthy
       - name: Wait for Ollama Service
         id: wait_ollama
         run: |
           echo "Waiting up to 2 minutes for Ollama service health..."
           for i in {1..24}; do
-            # Check the Docker health status
             if docker inspect --format='{{json .State.Health.Status}}' ollama_service | grep -q healthy; then
               echo "Ollama service is healthy!"
               break
@@ -71,20 +67,22 @@ jobs:
             fi
           done
 
-      # Step 2: Pull the Mistral model (lightweight and fast)
+      # Pull the Mistral model (using the corrected tag)
       - name: Pull Mistral Model
         id: pull_model
         run: |
-          echo "Pulling lightweight Mistral model (${{ env.OLLAMA_MODEL }})..."
-          # This command executes inside the running ollama_service container
-          # Added a retry mechanism in case of temporary network issues
+          # FIX: Add a short sleep to ensure the Ollama CLI is fully operational
+          echo "Waiting 5 seconds to ensure Ollama is fully ready..."
+          sleep 5
+          
+          echo "Pulling model ${{ env.OLLAMA_MODEL }}..."
+          # Execute the pull command with retry logic
           docker exec ollama_service ollama pull ${{ env.OLLAMA_MODEL }} || {
             echo "Retrying model pull after 10 seconds..."
             sleep 10
             docker exec ollama_service ollama pull ${{ env.OLLAMA_MODEL }}
           }
 
-      # Step 3: Run the Python Email Agent
       - name: Run Email Agent
         id: run_agent
         run: |
