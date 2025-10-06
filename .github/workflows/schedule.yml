@@ -3,7 +3,7 @@ name: Email Automation Scheduler
 on:
   schedule:
     # Run every 15 minutes (adjust if needed)
-    - cron: '*/15 * * * *'
+    - cron: '* * * * *'
   workflow_dispatch:
 
 jobs:
