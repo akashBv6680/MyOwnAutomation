@@ -2,29 +2,28 @@ name: Email Automation Scheduler
 
 on:
   schedule:
-    - cron: '*/5 * * * *'  # Changed to every 5 minutes (GitHub best practice)
+    - cron: '*/5 * * * *'  # Runs every 5 minutes
   workflow_dispatch:
 
 jobs:
   run-email-agent:
     runs-on: ubuntu-latest
     
-    # 🌟 NEW: Define the Ollama Service Container
+    # Define the Ollama Service Container
     services:
       ollama_service:
         image: ollama/ollama:latest
         ports:
           - 11434:11434
-        # CRITICAL FIX: The robust single-line options ensure Docker start success.
+        # FIX: Robust, single-line options for Docker start success.
         options: --name ollama_service --health-cmd "ollama -v" --health-interval 10s --health-timeout 5s --health-retries 5
 
     env:
       EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
       EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
       LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }} 
-      # Optional, but good practice to define the target model
-      LLM_MODEL: mixtral 
-
+      LLM_MODEL: mistral # Set the model name in the environment
+      
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -38,22 +37,23 @@ jobs:
         run: |
           pip install requests imapclient
 
-      # 🌟 Pull the Ollama model before running the script
-      - name: Pull Ollama Model (Mixtral)
-        # Added a 10s sleep to let Ollama start fully before the pull command
+      # FIX: Pull the smaller Mistral model (4.1 GB) for reliable execution
+      - name: Pull Ollama Model (Mistral)
         run: |
           echo "Waiting 10s for Ollama service to fully initialize..."
           sleep 10
-          docker exec ollama_service ollama pull mixtral
+          # CRITICAL FIX: Changed from 'mixtral' to 'mistral'
+          docker exec ollama_service ollama pull mistral
         
-      # 🌟 Wait for Ollama service to be fully ready
+      # Wait for Ollama service to be fully ready
       - name: Wait for Ollama to be available
         uses: nev7n/wait_for_response@v1
         with:
           url: http://ollama_service:11434/
           responseCode: 200
-          timeout: 300 # Give it up to 5 minutes to start and pull the model
+          # Increased timeout to 7 minutes to accommodate *some* download time
+          timeout: 420 
           
       - name: Run Email Agent
-        # The Python script is now configured to use the local Ollama service.
+        # The Python script will now connect to the local ollama_service
         run: python email_agent.py
