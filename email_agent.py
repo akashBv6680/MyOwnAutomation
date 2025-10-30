@@ -7,10 +7,15 @@ import json
 import re
 import time
 from email.message import EmailMessage
-from airllm import AirLLMInternLM  # Import the specific AirLLM model class
 
-# --- Configuration & Secrets ---
-LLM_MODEL_NAME = "internlm/internlm-20b"
+# --- AirLLM and Model Configuration ---
+# Ensure you have the necessary libraries installed: pip install airllm torch transformers sentencepiece accelerate
+# AirLLM will automatically handle the model loading.
+from airllm import AutoModel
+
+LLM_MODEL_NAME = "microsoft/Phi-3-mini-4k-instruct"
+
+# --- Email and Server Configuration ---
 EMAIL_ADDRESS = os.environ.get("EMAIL_ADDRESS")
 EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")
 SMTP_SERVER = "smtp.gmail.com"
@@ -99,34 +104,40 @@ def _fetch_latest_unread_email():
 def _run_ai_agent(email_data):
     try:
         print("Initializing AirLLM with model:", LLM_MODEL_NAME)
-        model = AirLLMInternLM(LLM_MODEL_NAME)
-        
+        # Use AutoModel to let AirLLM handle the model type automatically
+        model = AutoModel.from_pretrained(LLM_MODEL_NAME)
+
         prompt = (
-            f"{AGENTIC_SYSTEM_INSTRUCTIONS}\nKnowledge: {DATA_SCIENCE_KNOWLEDGE}\n"
-            f"INCOMING EMAIL:\nFROM: {email_data['from_email']}\nSUBJECT: {email_data['subject']}\nBODY: {email_data['body']}\n"
-            "Reply using the schema below as valid JSON:\n" + RESPONSE_SCHEMA_PROMPT
+            f"<|system|>\n{AGENTIC_SYSTEM_INSTRUCTIONS}\n{DATA_SCIENCE_KNOWLEDGE}\n"
+            f"You must respond in a valid JSON format according to the following schema:\n{RESPONSE_SCHEMA_PROMPT}\n<|end|>\n"
+            f"<|user|>\n"
+            f"Here is the email you need to process:\n"
+            f"FROM: {email_data['from_email']}\n"
+            f"SUBJECT: {email_data['subject']}\n"
+            f"BODY: {email_data['body']}\n<|end|>\n"
+            f"<|assistant|>\n"
         )
-        
-        input_text = [prompt]
+
         input_tokens = model.tokenizer(
-            input_text,
+            [prompt],
             return_tensors="pt",
             return_attention_mask=False,
             truncation=True,
-            max_length=2048, # Increased for larger context
-            padding=True
+            max_length=2048,
+            padding=False
         )
 
         print("Generating response with AirLLM...")
+        # Note: .cuda() is removed as GitHub Actions runners are CPU-only
         generation_output = model.generate(
-            input_tokens['input_ids'].cuda(),
-            max_new_tokens=512,  # Allow for a detailed JSON response
+            input_tokens['input_ids'],
+            max_new_tokens=512,
             use_cache=True,
             return_dict_in_generate=True
         )
 
         response_text = model.tokenizer.decode(generation_output.sequences[0])
-        
+
         # Extract JSON from the generated text
         json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
         if json_match:
@@ -134,7 +145,7 @@ def _run_ai_agent(email_data):
         else:
             print("ERROR: No JSON found in AirLLM response.")
             return None
-            
+
     except Exception as e:
         print(f"ERROR: AirLLM request failed: {e}")
         return None
@@ -155,26 +166,19 @@ def main_agent_workflow():
         return
 
     is_technical = ai_output.get("is_technical", False)
-    if isinstance(is_technical, str):
-        is_technical = is_technical.lower() == "true"
-    
     request_meeting = ai_output.get("request_meeting", False)
-    if isinstance(request_meeting, str):
-        request_meeting = request_meeting.lower() == "true"
 
-    simple_reply_draft = ai_output.get("simple_reply_draft")
-    non_technical_reply_draft = ai_output.get("non_technical_reply_draft")
-    meeting_suggestion_draft = ai_output.get("meeting_suggestion_draft")
-    
     print(f"RESULT: Technical? {is_technical} | Meeting? {request_meeting}")
 
     final_subject = f"Re: {subject}"
-    reply_draft = (
-        meeting_suggestion_draft if is_technical and request_meeting
-        else simple_reply_draft if is_technical
-        else non_technical_reply_draft
-    )
-    
+    if is_technical:
+        reply_draft = ai_output.get("meeting_suggestion_draft") if request_meeting else ai_output.get("simple_reply_draft")
+    else:
+        reply_draft = ai_output.get("non_technical_reply_draft")
+
+    if not reply_draft:
+        reply_draft = "Thank you for your message. We will get back to you shortly."
+
     reply_draft = re.sub(r'<[^>]+>', '', str(reply_draft)).strip()
 
     if not reply_draft.lower().startswith(("hello", "hi", "thank you")):
