@@ -18,16 +18,23 @@ SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 465
 IMAP_SERVER = "imap.gmail.com"
 
-DATA_SCIENCE_KNOWLEDGE = "Akash BV is a friendly data scientist. Contact for technical or project consulting."
+# Stronger knowledge base prompt for project context
+DATA_SCIENCE_KNOWLEDGE = """
+You are a Senior Data Scientist. You help solve project statements about classification, transfer learning, model comparison, deployment, and RAG chatbot integration. 
+For technical emails or client projects, always reply with specific suggestions, typical approaches, stepwise recommendations, and next actions (dataset needs, model building, deployment, chat integration). Mention ML tools if relevant (CNNs, Streamlit, RAG, transfer learning). 
+Provide actionable and context-rich advice.
+"""
+
 AGENTIC_SYSTEM_INSTRUCTIONS = (
-    "You are Akash BV, a helpful Data Science expert. Always reply plainly and sign as 'Best regards,\\nAkash BV'."
+    "You are Akash BV, Senior Data Scientist. Always provide context-aware, actionable advice in technical/project replies. Review the client's problem carefully, suggest relevant ML/deployment approaches, and offer a discovery call if the project is serious. Always sign: 'Best regards,\\nAkash BV'."
 )
+
 RESPONSE_SCHEMA_JSON = {
-    "is_technical": "True if the email matches project/technical topic, False otherwise.",
-    "simple_reply_draft": "For technical emails, reply briefly based on knowledge base.",
-    "non_technical_reply_draft": "For general emails, reply with a short, kind acknowledgement.",
-    "request_meeting": "True if serious inquiry, False otherwise.",
-    "meeting_suggestion_draft": "Suggest times for a video call: Monday/Wednesday/Friday 2-5PM IST."
+    "is_technical": "True if the email contains any project statement, ML/DS problem, or technical inquiry; False otherwise.",
+    "simple_reply_draft": "If technical/project: Summarize requirements and reply with context-specific advice (e.g., list next steps, suggest suitable ML models, tools, or chatbots for their scenario, propose a discovery call if desired).",
+    "non_technical_reply_draft": "If non-project/general: Thank politely, acknowledge receipt, and offer to help if relevant details are shared.",
+    "request_meeting": "True if there is a strong project intent or the sender appears ready to proceed.",
+    "meeting_suggestion_draft": "Invite to a video discovery call, offering Monday/Wednesday/Friday 2-5PM IST as slots."
 }
 RESPONSE_SCHEMA_PROMPT = json.dumps(RESPONSE_SCHEMA_JSON, indent=2)
 
@@ -142,16 +149,15 @@ def main_agent_workflow():
     if not ai_output:
         print("ERROR: AI failed (timeout/resource); no reply sent.")
         return
-    SAFE_REPLY = "Thank you for reaching out. Will reply soon! Best regards,\nAkash BV"
     is_technical = ai_output.get("is_technical", False)
     if isinstance(is_technical, str):
         is_technical = is_technical.lower() == "true"
     request_meeting = ai_output.get("request_meeting", False)
     if isinstance(request_meeting, str):
         request_meeting = request_meeting.lower() == "true"
-    simple_reply_draft = ai_output.get("simple_reply_draft", SAFE_REPLY)
-    non_technical_reply_draft = ai_output.get("non_technical_reply_draft", SAFE_REPLY)
-    meeting_suggestion_draft = ai_output.get("meeting_suggestion_draft", SAFE_REPLY)
+    simple_reply_draft = ai_output.get("simple_reply_draft")
+    non_technical_reply_draft = ai_output.get("non_technical_reply_draft")
+    meeting_suggestion_draft = ai_output.get("meeting_suggestion_draft")
     print(f"RESULT: Technical? {is_technical} | Meeting? {request_meeting}")
     final_subject = f"Re: {subject}"
     reply_draft = (
@@ -159,7 +165,7 @@ def main_agent_workflow():
         else simple_reply_draft if is_technical
         else non_technical_reply_draft
     )
-    reply_draft = re.sub(r'<[^>]+>', '', reply_draft).strip()
+    reply_draft = re.sub(r'<[^>]+>', '', str(reply_draft)).strip()
     if not reply_draft.lower().startswith(("hello", "hi", "thank you")):
         reply_draft = f"Hello,\n\n{reply_draft}"
     print("ACTION: Sending reply...")
