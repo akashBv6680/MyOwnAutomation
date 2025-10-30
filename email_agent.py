@@ -222,7 +222,9 @@ def _run_ai_agent(email_data):
     for i in range(3):
         try:
             print(f"DEBUG: Attempting Ollama API call to {OLLAMA_URL} (Retry {i+1})...")
-            response = requests.post(OLLAMA_URL, headers=headers, data=json.dumps(payload), timeout=180) 
+            # --- MODIFIED LINE: TIMEOUT INCREASED TO 600 SECONDS (10 MINUTES) ---
+            response = requests.post(OLLAMA_URL, headers=headers, data=json.dumps(payload), timeout=600) 
+            # -------------------------------------------------------------------
             response.raise_for_status()
             response_json = response.json()
             
@@ -240,6 +242,7 @@ def _run_ai_agent(email_data):
                 raise ValueError("Ollama response did not contain a valid JSON object.")
 
         except requests.exceptions.RequestException as e:
+            # The exception 'e' will now show the new timeout value if hit
             print(f"HTTP Error or Timeout: {e}. Retrying in {2 ** (i + 1)} seconds...")
             time.sleep(2 ** (i + 1))
         except Exception as e:
@@ -277,7 +280,7 @@ def main_agent_workflow():
     # Extract results and handle potential string/boolean mismatch from LLM
     is_technical = ai_output.get("is_technical", "False")
     if isinstance(is_technical, str):
-         is_technical = is_technical.lower() == "true"
+           is_technical = is_technical.lower() == "true"
     
     request_meeting = ai_output.get("request_meeting", "False")
     if isinstance(request_meeting, str):
