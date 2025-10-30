@@ -9,32 +9,7 @@ on:
 jobs:
   run-email-agent:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-
-    services:
-      # --- DEFAULT SERVICE: Ollama ---
-      # This service runs the local Ollama instance.
-      ollama_service:
-        image: ollama/ollama:latest
-        ports:
-          - 11434:11434
-        env:
-          OLLAMA_NUM_THREAD: "0"
-        options: >-
-          --name ollama_service
-          --health-cmd="ollama -v"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
-
-      # --- PLACEHOLDER: AirLLM Service ---
-      # If you set up a local AirLLM service in a Docker container,
-      # you would define it here. For example:
-      #
-      # airllm_service:
-      #   image: your-airllm-docker-image:latest
-      #   ports:
-      #     - 5000:5000 # Assuming AirLLM runs on port 5000
+    timeout-minutes: 45 # Increased timeout for larger model download/setup
 
     env:
       # --- General Email Secrets ---
@@ -42,15 +17,11 @@ jobs:
       EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
       IMAP_SERVER: imap.gmail.com
       SMTP_SERVER: smtp.gmail.com
-      LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }}
       PYTHONUNBUFFERED: 1
-
-      # --- LLM Configuration (Defaults to Ollama) ---
-      # Your Python script will use these variables.
-      # Set 'USE_AIRLLM' to 'true' in your script to switch.
-      OLLAMA_URL: http://localhost:11434/api/generate
-      LLAMA_MODEL: mistral:7b-instruct-q4_0
-
+      
+      # --- For AirLLM to cache models ---
+      HF_HOME: /home/runner/.cache/huggingface
+      
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -59,45 +30,23 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          
+      - name: Cache Hugging Face models
+        uses: actions/cache@v3
+        with:
+          path: ${{ env.HF_HOME }}
+          key: ${{ runner.os }}-huggingface-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-huggingface-
 
       - name: Install Dependencies
         run: |
           pip install --upgrade pip
-          pip install requests
+          # AirLLM requires PyTorch with CUDA support, transformers, and other dependencies
+          pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+          pip install airllm transformers sentencepiece accelerate
 
-      - name: Wait for Ollama Service
+      - name: Run Email Agent with AirLLM
         run: |
-          echo "Waiting for Ollama service to become healthy..."
-          for i in {1..24}; do
-            if docker inspect --format='{{json .State.Health.Status}}' ollama_service | grep -q healthy; then
-              echo "Ollama service is healthy!"
-              break
-            else
-              echo "Waiting for Ollama... ($i/24)"
-              sleep 5
-            fi
-            if [ $i -eq 24 ]; then
-              echo "Ollama service failed to become healthy. Aborting."
-              exit 1
-            fi
-          done
-
-      - name: Pull Mistral 7B Instruct Model
-        run: |
-          echo "Pulling model ${{ env.LLAMA_MODEL }}..."
-          docker exec ollama_service ollama pull ${{ env.LLAMA_MODEL }}
-
-      - name: Warm-up Ollama Model
-        run: |
-          echo "Warming up model to load it into memory..."
-          curl http://localhost:11434/api/generate -d '{
-            "model": "${{ env.LLAMA_MODEL }}",
-            "prompt": "Hi",
-            "stream": false,
-            "options": {"num_predict": 1}
-          }' --max-time 180
-
-      - name: Run Email Agent
-        run: |
-          echo "Starting Email Automation..."
+          echo "Starting Email Automation with AirLLM..."
           python email_agent.py
