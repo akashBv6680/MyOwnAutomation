@@ -1,1 +1,9 @@
 requests
+airllm
+transformers
+sentencepiece
+accelerate
+optimum
+torch
+torchvision
+torchaudio
