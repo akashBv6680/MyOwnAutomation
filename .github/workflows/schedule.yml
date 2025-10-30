@@ -9,8 +9,8 @@ on:
 jobs:
   run-email-agent:
     runs-on: ubuntu-latest
-    # Increased overall job timeout to 20 minutes for maximum LLM safety buffer
-    timeout-minutes: 20
+    # 🚨 CRITICAL ADDITION: Set overall job timeout to 15 minutes
+    timeout-minutes: 15
 
     services:
       # Define the Ollama service
@@ -19,27 +19,22 @@ jobs:
         ports:
           # Maps the container port 11434 to the runner's localhost port 11434
           - 11434:11434
-        # 🟢 FIX: Use environment block for CPU thread setting (solves 'invalid reference format' error)
-        environment:
-          # OPTIMIZATION: Set OLLAMA_NUM_THREAD to maximize CPU usage
-          OLLAMA_NUM_THREAD: $(nproc)
-        # 🟢 FIX: Cleaned up options block
         options: >-
           --name ollama_service
           --health-cmd="ollama -v"
           --health-interval=10s
           --health-timeout=5s
-          --health-retries=5 
+          --health-retries=5
 
     env:
       EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
       EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
       IMAP_SERVER: imap.gmail.com
       SMTP_SERVER: smtp.gmail.com
-      # Use localhost for the Python script to connect to the service
+      # CRITICAL FIX: Use localhost for the Python script to connect to the service
       OLLAMA_URL: http://localhost:11434/api/generate
-      # Using the smaller, CPU-optimized Phi-3 Mini model for speed
-      OLLAMA_MODEL: phi3:3.8b-mini-4k-instruct-q4_1
+      # Using a verified model tag
+      OLLAMA_MODEL: mistral:7b-instruct-v0.2-q4_0
       LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }} 
       PYTHONUNBUFFERED: 1
 
@@ -76,8 +71,8 @@ jobs:
             fi
           done
 
-      # Pull the Model
-      - name: Pull Phi-3 Model
+      # Pull the Mistral model
+      - name: Pull Mistral Model
         id: pull_model
         run: |
           echo "Waiting 5 seconds to ensure Ollama is fully ready..."
@@ -85,10 +80,9 @@ jobs:
           
           echo "Pulling model ${{ env.OLLAMA_MODEL }} (Max 5 attempts)..."
           
-          # Use a loop for resilient model pulling
+          # 🚨 MODIFIED LOGIC: Use a loop for resilient pulling
           MODEL_PULL_SUCCESS=0
           for i in {1..5}; do
-            # Pull command is executed inside the ollama_service container
             docker exec ollama_service ollama pull ${{ env.OLLAMA_MODEL }}
             if [ $? -eq 0 ]; then
               echo "Model pull successful on attempt $i."
