@@ -30,12 +30,12 @@ jobs:
       IMAP_SERVER: imap.gmail.com
       SMTP_SERVER: smtp.gmail.com
       OLLAMA_URL: http://localhost:11434/api/generate
-      OLLAMA_MODEL: mistral:4b-instruct-q4_0
+      OLLAMA_MODEL: mistral:7b-instruct-q4_0
       LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }}
       PYTHONUNBUFFERED: 1
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Python 3.11
@@ -43,20 +43,20 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Dependencies
+      - name: Install dependencies
         run: |
           pip install --upgrade pip
           pip install requests
 
-      - name: Wait for Ollama Service
+      - name: Wait for Ollama service
         run: |
-          echo "Waiting for Ollama service health..."
+          echo "Waiting for Ollama service to become healthy..."
           for i in {1..24}; do
             if docker inspect --format='{{json .State.Health.Status}}' ollama_service | grep -q healthy; then
               echo "Ollama service is healthy!"
               break
             else
-              echo "Still waiting for Ollama... ($i/24)"
+              echo "Waiting for Ollama... ($i/24)"
               sleep 5
             fi
             if [ $i -eq 24 ]; then
@@ -65,21 +65,21 @@ jobs:
             fi
           done
 
-      - name: Pull Mistral 4B Instruct Model
+      - name: Pull Mistral 7B Instruct Model
         run: |
           echo "Pulling model ${{ env.OLLAMA_MODEL }}..."
           docker exec ollama_service ollama pull ${{ env.OLLAMA_MODEL }}
 
-      - name: Warm-up Ollama Model
+      - name: Warmup Ollama model
         run: |
           curl http://localhost:11434/api/generate -d '{
             "model": "${{ env.OLLAMA_MODEL }}",
             "prompt": "Hi",
             "stream": false,
             "options": {"num_predict": 1}
-          }' --max-time 120
+          }' --max-time 180
 
-      - name: Run Email Agent
+      - name: Run email agent
         run: |
           echo "Starting Email Automation..."
           python email_agent.py
