@@ -11,7 +11,7 @@ from email.message import EmailMessage
 
 # --- Configuration & Secrets (Loaded from GitHub Environment Variables) ---
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/generate")
-LLM_MODEL = os.environ.get("OLLAMA_MODEL", "mistral:7b-instruct-v0.2-q4_0") # Fallback to corrected tag
+LLM_MODEL = os.environ.get("OLLAMA_MODEL", "mistral:7b-instruct-v0.2-q4_0")
 EMAIL_ADDRESS = os.environ.get("EMAIL_ADDRESS")
 EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD") 
 SMTP_SERVER = "smtp.gmail.com"
@@ -222,9 +222,9 @@ def _run_ai_agent(email_data):
     for i in range(3):
         try:
             print(f"DEBUG: Attempting Ollama API call to {OLLAMA_URL} (Retry {i+1})...")
-            # --- MODIFIED LINE: TIMEOUT INCREASED TO 600 SECONDS (10 MINUTES) ---
-            response = requests.post(OLLAMA_URL, headers=headers, data=json.dumps(payload), timeout=600) 
-            # -------------------------------------------------------------------
+            # --- 🟢 CORRECTED LINE: TIMEOUT INCREASED TO 1140 SECONDS (19 MINUTES) ---
+            response = requests.post(OLLAMA_URL, headers=headers, data=json.dumps(payload), timeout=1140) 
+            # ----------------------------------------------------------------------
             response.raise_for_status()
             response_json = response.json()
             
