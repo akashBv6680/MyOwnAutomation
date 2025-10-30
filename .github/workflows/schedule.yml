@@ -2,14 +2,14 @@ name: Email Automation Scheduler
 
 on:
   schedule:
-    # Runs every 5 minutes
-    - cron: '*/5 * * * *'
+    # Runs every 15 minutes to allow more time for the larger model setup
+    - cron: '*/15 * * * *'
   workflow_dispatch:
 
 jobs:
   run-email-agent:
     runs-on: ubuntu-latest
-    timeout-minutes: 45 # Increased timeout for larger model download/setup
+    timeout-minutes: 45 # Increased timeout for model download and setup
 
     env:
       # --- General Email Secrets ---
@@ -18,10 +18,10 @@ jobs:
       IMAP_SERVER: imap.gmail.com
       SMTP_SERVER: smtp.gmail.com
       PYTHONUNBUFFERED: 1
-      
-      # --- For AirLLM to cache models ---
+
+      # --- For AirLLM/Hugging Face to cache models ---
       HF_HOME: /home/runner/.cache/huggingface
-      
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -30,20 +30,20 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          
+
       - name: Cache Hugging Face models
-        uses: actions/cache@v3
+        uses: actions/cache@v4
+        id: hf-cache
         with:
           path: ${{ env.HF_HOME }}
-          key: ${{ runner.os }}-huggingface-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-huggingface-
+          key: ${{ runner.os }}-huggingface-models-v1
 
       - name: Install Dependencies
         run: |
           pip install --upgrade pip
-          # AirLLM requires PyTorch with CUDA support, transformers, and other dependencies
-          pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+          # AirLLM requires torch, transformers, and other dependencies
+          # Install CPU version of PyTorch
+          pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
           pip install airllm transformers sentencepiece accelerate
 
       - name: Run Email Agent with AirLLM
