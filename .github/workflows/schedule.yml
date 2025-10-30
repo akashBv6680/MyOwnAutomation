@@ -9,7 +9,8 @@ on:
 jobs:
   run-email-agent:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # --- 🟢 CORRECTED LINE: Increased job timeout to 30 minutes for a safer buffer ---
+    timeout-minutes: 30
 
     services:
       ollama_service:
@@ -17,14 +18,13 @@ jobs:
         ports:
           - 11434:11434
         env:
-          # Setting to "0" allows Ollama to use all available CPU cores
-          OLLAMA_NUM_THREAD: "0" 
+          OLLAMA_NUM_THREAD: "0"
         options: >-
           --name ollama_service
           --health-cmd="ollama -v"
           --health-interval=10s
           --health-timeout=5s
-          --health-retries=5
+          --health-retries=5 
 
     env:
       EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
@@ -33,7 +33,7 @@ jobs:
       SMTP_SERVER: smtp.gmail.com
       OLLAMA_URL: http://localhost:11434/api/generate
       OLLAMA_MODEL: phi3:3.8b-mini-4k-instruct-q4_1
-      LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }}
+      LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }} 
       PYTHONUNBUFFERED: 1
 
     steps:
@@ -91,7 +91,6 @@ jobs:
             exit 1
           fi
 
-      # 🟢 NEW: Warm-up Ollama to pre-load the model
       - name: Warm-up Ollama Service
         run: |
           echo "Warming up Ollama with model ${{ env.OLLAMA_MODEL }}..."
@@ -103,7 +102,7 @@ jobs:
             "options": {
               "num_predict": 1
             }
-          }' --max-time 900 # Set a long timeout of 15 minutes for this warm-up call
+          }' --max-time 900
 
       - name: Run Email Agent
         id: run_agent
