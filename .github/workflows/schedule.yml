@@ -3,7 +3,7 @@ name: Email Automation Scheduler
 on:
   schedule:
     # Runs every 15 minutes to allow more time for the larger model setup
-    - cron: '*/5 * * * *'
+    - cron: '*/15 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -41,10 +41,18 @@ jobs:
       - name: Install Dependencies
         run: |
           pip install --upgrade pip
-          # Install CPU version of PyTorch
+          # Install the CPU version of PyTorch first
           pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-          # CRITICAL FIX: Ensure 'optimum' is included in this line
+          # CRITICAL FIX: The following line installs all required packages, including 'optimum'.
           pip install airllm transformers sentencepiece accelerate optimum
+
+      - name: Verify Installation
+        run: |
+          echo "--- Verifying installed packages ---"
+          pip list
+          echo "------------------------------------"
+          echo "Checking for 'optimum' package..."
+          pip show optimum
 
       - name: Run Email Agent with AirLLM
         run: |
