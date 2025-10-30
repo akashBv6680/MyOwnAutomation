@@ -11,30 +11,27 @@ from email.message import EmailMessage
 
 # --- Configuration & Secrets ---
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/generate")
-LLM_MODEL = os.environ.get("OLLAMA_MODEL", "phi3:3.8b-mini-4k-instruct-q4_1")
+LLM_MODEL = os.environ.get("OLLAMA_MODEL", "mistral:7b-instruct-v0.2-q4_0")
 EMAIL_ADDRESS = os.environ.get("EMAIL_ADDRESS")
 EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD") 
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 465
 IMAP_SERVER = "imap.gmail.com"
 
-# Stronger knowledge base prompt for project context
 DATA_SCIENCE_KNOWLEDGE = """
-You are a Senior Data Scientist. You help solve project statements about classification, transfer learning, model comparison, deployment, and RAG chatbot integration. 
-For technical emails or client projects, always reply with specific suggestions, typical approaches, stepwise recommendations, and next actions (dataset needs, model building, deployment, chat integration). Mention ML tools if relevant (CNNs, Streamlit, RAG, transfer learning). 
-Provide actionable and context-rich advice.
+You are a Senior Data Scientist. You solve project statements in ML, deep learning, model comparison, deployment (Streamlit), RAG chatbot integration. For technical and project inquiries, analyze the requirements, reply with relevant ML/deployment advice (CNN, transfer learning, metrics, app & chatbot development), and suggest next steps. Invite to share datasets or schedule meetings where appropriate.
 """
 
 AGENTIC_SYSTEM_INSTRUCTIONS = (
-    "You are Akash BV, Senior Data Scientist. Always provide context-aware, actionable advice in technical/project replies. Review the client's problem carefully, suggest relevant ML/deployment approaches, and offer a discovery call if the project is serious. Always sign: 'Best regards,\\nAkash BV'."
+    "You are Akash BV, Senior Data Scientist. For any email about ML, deep learning, Streamlit, RAG, project statement, you must reply with context-aware, actionable recommendations. Always analyze and summarize the inquiry, suggest first steps, offer technical advice, and propose further info or meetings. Sign your reply as 'Best regards,\\nAkash BV'."
 )
 
 RESPONSE_SCHEMA_JSON = {
-    "is_technical": "True if the email contains any project statement, ML/DS problem, or technical inquiry; False otherwise.",
-    "simple_reply_draft": "If technical/project: Summarize requirements and reply with context-specific advice (e.g., list next steps, suggest suitable ML models, tools, or chatbots for their scenario, propose a discovery call if desired).",
-    "non_technical_reply_draft": "If non-project/general: Thank politely, acknowledge receipt, and offer to help if relevant details are shared.",
-    "request_meeting": "True if there is a strong project intent or the sender appears ready to proceed.",
-    "meeting_suggestion_draft": "Invite to a video discovery call, offering Monday/Wednesday/Friday 2-5PM IST as slots."
+    "is_technical": "True if subject or body mentions ML, deep learning, project, model training, deployment, comparison, Streamlit, or RAG; False otherwise.",
+    "simple_reply_draft": "If technical, reply with specific advice (summarize client's goals, suggest appropriate ML methods, mention CNN for image classification, transfer learning, Streamlit for deployment, RAG for chatbots). Offer to review datasets and schedule a meeting.",
+    "non_technical_reply_draft": "If not technical, reply politely and invite the sender to share further details for technical/project advice.",
+    "request_meeting": "True if the inquiry shows intent for project work or next steps.",
+    "meeting_suggestion_draft": "Invite sender to a video call (Mon/Wed/Fri 2-5PM IST) for a deep-dive discussion."
 }
 RESPONSE_SCHEMA_PROMPT = json.dumps(RESPONSE_SCHEMA_JSON, indent=2)
 
@@ -100,7 +97,7 @@ def _fetch_latest_unread_email():
 def _run_ai_agent(email_data):
     prompt = (
         f"{AGENTIC_SYSTEM_INSTRUCTIONS}\nKnowledge: {DATA_SCIENCE_KNOWLEDGE}\n"
-        f"INCOMING EMAIL:\nFROM: {email_data['from_email']}\nSUBJECT: {email_data['subject']}\nBODY: {email_data['body']}\n"
+        f"EMAIL SUBJECT: {email_data['subject']}\nEMAIL BODY: {email_data['body']}\n"
         "Reply using the schema below as valid JSON:\n" + RESPONSE_SCHEMA_PROMPT
     )
     payload = {
@@ -110,7 +107,7 @@ def _run_ai_agent(email_data):
         "options": {
             "temperature": 0.3,
             "top_p": 0.9,
-            "num_predict": 128
+            "num_predict": 256  # medium model can handle longer generations
         }
     }
     headers = {'Content-Type': 'application/json'}
