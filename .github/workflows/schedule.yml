@@ -41,10 +41,10 @@ jobs:
       - name: Install Dependencies
         run: |
           pip install --upgrade pip
-          # AirLLM requires torch, transformers, and other dependencies
+          # AirLLM requires torch, transformers, optimum, and other dependencies
           # Install CPU version of PyTorch
           pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-          pip install airllm transformers sentencepiece accelerate
+          pip install airllm transformers sentencepiece accelerate optimum
 
       - name: Run Email Agent with AirLLM
         run: |
