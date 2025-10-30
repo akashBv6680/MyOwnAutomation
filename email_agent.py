@@ -11,7 +11,7 @@ from email.message import EmailMessage
 
 # --- Configuration & Secrets ---
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/generate")
-LLM_MODEL = os.environ.get("OLLAMA_MODEL", "mistral:7b-instruct-v0.2-q4_0")
+LLM_MODEL = os.environ.get("OLLAMA_MODEL", "mistral:4b-instruct-q4_0")  # Update tag as needed!
 EMAIL_ADDRESS = os.environ.get("EMAIL_ADDRESS")
 EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD") 
 SMTP_SERVER = "smtp.gmail.com"
@@ -19,19 +19,19 @@ SMTP_PORT = 465
 IMAP_SERVER = "imap.gmail.com"
 
 DATA_SCIENCE_KNOWLEDGE = """
-You are a Senior Data Scientist. You solve project statements in ML, deep learning, model comparison, deployment (Streamlit), RAG chatbot integration. For technical and project inquiries, analyze the requirements, reply with relevant ML/deployment advice (CNN, transfer learning, metrics, app & chatbot development), and suggest next steps. Invite to share datasets or schedule meetings where appropriate.
+You are a Senior Data Scientist. You solve ML, deep learning, model comparison, deployment and RAG chatbot projects. For technical/project inquiries, analyze requirements, reply with ML/deployment advice (CNN, transfer learning, metrics, Streamlit, RAG), and suggest next steps. Invite datasets and meetings as appropriate.
 """
 
 AGENTIC_SYSTEM_INSTRUCTIONS = (
-    "You are Akash BV, Senior Data Scientist. For any email about ML, deep learning, Streamlit, RAG, project statement, you must reply with context-aware, actionable recommendations. Always analyze and summarize the inquiry, suggest first steps, offer technical advice, and propose further info or meetings. Sign your reply as 'Best regards,\\nAkash BV'."
+    "You are Akash BV, Senior Data Scientist. For any ML, deep learning, Streamlit, RAG or project inquiry, reply with context-aware actionable recommendations. Always analyze and summarize the inquiry, propose first steps, offer technical advice, and suggest further info or meetings. Sign reply: 'Best regards,\\nAkash BV'."
 )
 
 RESPONSE_SCHEMA_JSON = {
-    "is_technical": "True if subject or body mentions ML, deep learning, project, model training, deployment, comparison, Streamlit, or RAG; False otherwise.",
-    "simple_reply_draft": "If technical, reply with specific advice (summarize client's goals, suggest appropriate ML methods, mention CNN for image classification, transfer learning, Streamlit for deployment, RAG for chatbots). Offer to review datasets and schedule a meeting.",
-    "non_technical_reply_draft": "If not technical, reply politely and invite the sender to share further details for technical/project advice.",
-    "request_meeting": "True if the inquiry shows intent for project work or next steps.",
-    "meeting_suggestion_draft": "Invite sender to a video call (Mon/Wed/Fri 2-5PM IST) for a deep-dive discussion."
+    "is_technical": "True if subject/body mentions ML, deep learning, project, model training, deployment, comparison, Streamlit, or RAG; False otherwise.",
+    "simple_reply_draft": "If technical, reply with advice (summarize client goals, suggest ML methods, mention CNN/image classification, transfer learning, Streamlit, RAG). Offer to review datasets, invite meeting.",
+    "non_technical_reply_draft": "If not technical, reply politely and invite info for technical/project advice.",
+    "request_meeting": "True if sender wants project work or next steps.",
+    "meeting_suggestion_draft": "Invite to video call (Mon/Wed/Fri 2-5PM IST) for detailed discussion."
 }
 RESPONSE_SCHEMA_PROMPT = json.dumps(RESPONSE_SCHEMA_JSON, indent=2)
 
@@ -107,7 +107,7 @@ def _run_ai_agent(email_data):
         "options": {
             "temperature": 0.3,
             "top_p": 0.9,
-            "num_predict": 256  # medium model can handle longer generations
+            "num_predict": 192  # Medium size for 4B
         }
     }
     headers = {'Content-Type': 'application/json'}
