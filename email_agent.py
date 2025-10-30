@@ -19,11 +19,9 @@ SMTP_PORT = 465
 IMAP_SERVER = "imap.gmail.com"
 
 DATA_SCIENCE_KNOWLEDGE = "Akash BV is a friendly data scientist. Contact for technical or project consulting."
-
 AGENTIC_SYSTEM_INSTRUCTIONS = (
     "You are Akash BV, a helpful Data Science expert. Always reply plainly and sign as 'Best regards,\\nAkash BV'."
 )
-
 RESPONSE_SCHEMA_JSON = {
     "is_technical": "True if the email matches project/technical topic, False otherwise.",
     "simple_reply_draft": "For technical emails, reply briefly based on knowledge base.",
@@ -119,12 +117,17 @@ def _run_ai_agent(email_data):
             response.raise_for_status()
             for line in response.iter_lines():
                 if line:
-                    result += line.decode('utf-8')
+                    result += line.decode('utf-8') + "\n"
                 if time.time() - last > 60:
                     print(f"[{time.strftime('%H:%M:%S')}] Still working...")
                     last = time.time()
-        match = re.search(r'\{.*\}', result, re.DOTALL)
-        return json.loads(match.group(0)) if match else None
+        # --- FIX: Robust JSON Parsing for Ollama streaming responses ---
+        json_objects = re.findall(r'\{.*?\}', result, re.DOTALL)
+        if json_objects:
+            return json.loads(json_objects[-1])
+        else:
+            print("ERROR: No JSON found in Ollama response.")
+            return None
     except Exception as e:
         print(f"ERROR: Ollama request failed: {e}")
         return None
