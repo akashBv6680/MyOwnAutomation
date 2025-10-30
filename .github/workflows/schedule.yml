@@ -36,23 +36,18 @@ jobs:
         id: hf-cache
         with:
           path: ${{ env.HF_HOME }}
-          key: ${{ runner.os }}-huggingface-models-v1
+          # Use the requirements.txt hash as part of the cache key
+          key: ${{ runner.os }}-huggingface-models-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-huggingface-models-
 
-      - name: Install Dependencies
+      - name: Install Dependencies from requirements.txt
         run: |
           pip install --upgrade pip
-          # Install the CPU version of PyTorch first
+          # First, install the CPU version of PyTorch
           pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-          # CRITICAL FIX: The following line installs all required packages, including 'optimum'.
-          pip install airllm transformers sentencepiece accelerate optimum
-
-      - name: Verify Installation
-        run: |
-          echo "--- Verifying installed packages ---"
-          pip list
-          echo "------------------------------------"
-          echo "Checking for 'optimum' package..."
-          pip show optimum
+          # Then, install all other packages from the requirements file
+          pip install -r requirements.txt
 
       - name: Run Email Agent with AirLLM
         run: |
