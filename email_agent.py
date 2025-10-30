@@ -113,7 +113,7 @@ def _run_ai_agent(email_data):
         print("DEBUG: Starting Ollama call with keep-alive...")
         result = ""
         last = time.time()
-        with session.post(OLLAMA_URL, json=payload, stream=True, timeout=360) as response:
+        with session.post(OLLAMA_URL, json=payload, stream=True, timeout=1800) as response:
             response.raise_for_status()
             for line in response.iter_lines():
                 if line:
@@ -121,7 +121,6 @@ def _run_ai_agent(email_data):
                 if time.time() - last > 60:
                     print(f"[{time.strftime('%H:%M:%S')}] Still working...")
                     last = time.time()
-        # --- FIX: Robust JSON Parsing for Ollama streaming responses ---
         json_objects = re.findall(r'\{.*?\}', result, re.DOTALL)
         if json_objects:
             return json.loads(json_objects[-1])
