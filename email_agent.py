@@ -178,7 +178,8 @@ def _fetch_latest_unread_email():
 
 def _run_ai_agent(email_data):
     """
-    Calls the Ollama local LLM using a structured prompt and the /api/generate endpoint.
+    Calls the Ollama local LLM using a structured prompt and the /api/generate endpoint
+    with a keep-alive loop to prevent GitHub Actions from timing out due to no log output.
     """
     if not OLLAMA_URL or not LLM_MODEL:
         print("CRITICAL ERROR: Ollama URL or Model is missing. Cannot run agent.")
@@ -187,7 +188,6 @@ def _run_ai_agent(email_data):
     if len(DATA_SCIENCE_KNOWLEDGE.strip()) < 50:
         print("WARNING: DATA_SCIENCE_KNOWLEDGE is likely empty or too short. AI response quality will suffer.")
 
-    # Ollama Prompt Structure (Optimized for JSON output)
     prompt = (
         f"**SYSTEM INSTRUCTIONS**:\n{AGENTIC_SYSTEM_INSTRUCTIONS}\n\n"
         f"**KNOWLEDGE BASE (For context and reply)**:\n{DATA_SCIENCE_KNOWLEDGE}\n\n"
@@ -206,7 +206,7 @@ def _run_ai_agent(email_data):
     payload = {
         "model": LLM_MODEL,
         "prompt": prompt,
-        "stream": False,
+        "stream": True,  # Use streaming to enable the keep-alive
         "options": {
             "temperature": 0.3,
             "top_p": 0.9,
@@ -218,37 +218,67 @@ def _run_ai_agent(email_data):
         'Content-Type': 'application/json'
     }
     
-    # Retry with exponential backoff
-    for i in range(3):
-        try:
-            print(f"DEBUG: Attempting Ollama API call to {OLLAMA_URL} (Retry {i+1})...")
-            # --- 🟢 CORRECTED LINE: TIMEOUT INCREASED TO 1140 SECONDS (19 MINUTES) ---
-            response = requests.post(OLLAMA_URL, headers=headers, data=json.dumps(payload), timeout=1140) 
-            # ----------------------------------------------------------------------
+    # --- FINAL FIX: Implement Keep-Alive for GitHub Actions ---
+    session = requests.Session()
+    session.headers.update(headers)
+    
+    try:
+        print(f"DEBUG: Starting long-polling Ollama API call with keep-alive...")
+        start_time = time.time()
+        
+        # Set a very long timeout for the overall request.
+        with session.post(OLLAMA_URL, json=payload, stream=True, timeout=1140) as response:
             response.raise_for_status()
-            response_json = response.json()
             
-            raw_content = response_json.get('response', '').strip()
-            
-            # Extract the pure JSON block
-            json_match = re.search(r'\{.*\}', raw_content, re.DOTALL)
-            
-            if json_match:
-                raw_json_string = json_match.group(0)
-                print("DEBUG: Ollama call successful. Attempting JSON parse...")
-                return json.loads(raw_json_string)
-            else:
-                print(f"ERROR: Could not find valid JSON in Ollama response. Raw content start: {raw_content[:200]}")
-                raise ValueError("Ollama response did not contain a valid JSON object.")
+            full_response_json = {}
+            last_keep_alive = time.time()
 
-        except requests.exceptions.RequestException as e:
-            # The exception 'e' will now show the new timeout value if hit
-            print(f"HTTP Error or Timeout: {e}. Retrying in {2 ** (i + 1)} seconds...")
-            time.sleep(2 ** (i + 1))
-        except Exception as e:
-            print(f"CRITICAL AI AGENT ERROR: Failed with unexpected error or failed to parse JSON: {e}")
-            return None
-    return None
+            # The keep-alive loop
+            for line in response.iter_lines():
+                if line:
+                    try:
+                        json_part = json.loads(line.decode('utf-8'))
+                        full_response_json.update(json_part)
+
+                        # When the stream is done, exit the loop
+                        if json_part.get('done'):
+                            print("DEBUG: Ollama indicates stream is complete.")
+                            break
+                    except json.JSONDecodeError:
+                        print(f"WARNING: Received non-JSON line from stream: {line}")
+                        continue
+                
+                # Print keep-alive if it has been a while since the last message
+                if time.time() - last_keep_alive > 60:
+                    print(f"[{time.strftime('%H:%M:%S')}] Still waiting for Ollama response...")
+                    last_keep_alive = time.time()
+
+                # Safety break: prevent infinite loop
+                if time.time() - start_time > 1100:
+                    raise requests.exceptions.Timeout("Script-level timeout exceeded after 1100 seconds.")
+
+        print("DEBUG: Ollama stream finished. Processing final response.")
+        
+        # Extract the final JSON object from the 'response' key
+        final_json_str = full_response_json.get('response', '{}')
+        
+        if final_json_str:
+            # Clean up the string to ensure it's valid JSON
+            json_match = re.search(r'\{.*\}', final_json_str, re.DOTALL)
+            if json_match:
+                clean_json_str = json_match.group(0)
+                return json.loads(clean_json_str)
+            else:
+                raise ValueError("Could not find a valid JSON object in the final response.")
+        else:
+            raise ValueError("Failed to extract final response content from Ollama stream.")
+
+    except requests.exceptions.RequestException as e:
+        print(f"CRITICAL HTTP/Connection Error: {e}")
+        return None
+    except Exception as e:
+        print(f"CRITICAL AI AGENT ERROR: An unexpected error occurred: {e}")
+        return None
 
 def main_agent_workflow():
     """The main entry point for the scheduled job."""
