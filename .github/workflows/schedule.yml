@@ -2,14 +2,12 @@ name: Email Automation Scheduler
 
 on:
   schedule:
-    # Run every 5 minutes
     - cron: '*/5 * * * *'
   workflow_dispatch:
 
 jobs:
   run-email-agent:
     runs-on: ubuntu-latest
-    # --- 🟢 CORRECTED LINE: Increased job timeout to 30 minutes for a safer buffer ---
     timeout-minutes: 30
 
     services:
@@ -24,7 +22,7 @@ jobs:
           --health-cmd="ollama -v"
           --health-interval=10s
           --health-timeout=5s
-          --health-retries=5 
+          --health-retries=5
 
     env:
       EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
@@ -33,7 +31,7 @@ jobs:
       SMTP_SERVER: smtp.gmail.com
       OLLAMA_URL: http://localhost:11434/api/generate
       OLLAMA_MODEL: phi3:3.8b-mini-4k-instruct-q4_1
-      LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }} 
+      LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }}
       PYTHONUNBUFFERED: 1
 
     steps:
@@ -51,7 +49,6 @@ jobs:
           pip install requests
 
       - name: Wait for Ollama Service
-        id: wait_ollama
         run: |
           echo "Waiting up to 2 minutes for Ollama service health..."
           for i in {1..24}; do
@@ -68,44 +65,21 @@ jobs:
             fi
           done
 
-      - name: Pull Phi-3 Model
-        id: pull_model
+      - name: Pull Phi-3 Mini Model
         run: |
-          echo "Waiting 5 seconds to ensure Ollama is fully ready..."
-          sleep 5
-          echo "Pulling model ${{ env.OLLAMA_MODEL }} (Max 5 attempts)..."
-          MODEL_PULL_SUCCESS=0
-          for i in {1..5}; do
-            docker exec ollama_service ollama pull ${{ env.OLLAMA_MODEL }}
-            if [ $? -eq 0 ]; then
-              echo "Model pull successful on attempt $i."
-              MODEL_PULL_SUCCESS=1
-              break
-            else
-              echo "Model pull failed on attempt $i. Retrying in 15 seconds..."
-              sleep 15
-            fi
-          done
-          if [ $MODEL_PULL_SUCCESS -eq 0 ]; then
-            echo "CRITICAL ERROR: Failed to pull model ${{ env.OLLAMA_MODEL }} after 5 attempts."
-            exit 1
-          fi
+          echo "Pulling model ${{ env.OLLAMA_MODEL }}..."
+          docker exec ollama_service ollama pull ${{ env.OLLAMA_MODEL }}
 
-      - name: Warm-up Ollama Service
+      - name: Warm-up Ollama
         run: |
-          echo "Warming up Ollama with model ${{ env.OLLAMA_MODEL }}..."
-          echo "This may take several minutes as the model is loaded into memory."
           curl http://localhost:11434/api/generate -d '{
             "model": "${{ env.OLLAMA_MODEL }}",
-            "prompt": "Hello!",
+            "prompt": "Hi",
             "stream": false,
-            "options": {
-              "num_predict": 1
-            }
-          }' --max-time 900
+            "options": {"num_predict": 1}
+          }' --max-time 120
 
       - name: Run Email Agent
-        id: run_agent
         run: |
           echo "Starting Email Automation..."
           python email_agent.py
