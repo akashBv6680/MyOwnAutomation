@@ -2,13 +2,16 @@ name: Email Automation Scheduler
 
 on:
   schedule:
-    # Run every 30 minutes to reduce overlap and load time
+    # Run every 5 minutes (as specified in your original file)
     - cron: '*/5 * * * *'
   workflow_dispatch:
 
 jobs:
   run-email-agent:
     runs-on: ubuntu-latest
+    # 🚨 CRITICAL FIX: Set overall job timeout to 15 minutes. This is required because
+    # the Python script's LLM timeout is now 600 seconds (10 minutes).
+    timeout-minutes: 15 
 
     services:
       # Define the Ollama service
@@ -73,17 +76,29 @@ jobs:
       - name: Pull Mistral Model
         id: pull_model
         run: |
-          # Stability check: Sleep briefly to ensure the Ollama CLI is fully ready
           echo "Waiting 5 seconds to ensure Ollama is fully ready..."
           sleep 5
           
-          echo "Pulling model ${{ env.OLLAMA_MODEL }}..."
-          # Execute the pull command inside the service container
-          docker exec ollama_service ollama pull ${{ env.OLLAMA_MODEL }} || {
-            echo "Retrying model pull after 10 seconds..."
-            sleep 10
+          echo "Pulling model ${{ env.OLLAMA_MODEL }} (Max 5 attempts)..."
+          
+          # 🚨 IMPROVEMENT: Use a loop for resilient model pulling
+          MODEL_PULL_SUCCESS=0
+          for i in {1..5}; do
             docker exec ollama_service ollama pull ${{ env.OLLAMA_MODEL }}
-          }
+            if [ $? -eq 0 ]; then
+              echo "Model pull successful on attempt $i."
+              MODEL_PULL_SUCCESS=1
+              break
+            else
+              echo "Model pull failed on attempt $i. Retrying in 15 seconds..."
+              sleep 15
+            fi
+          done
+          
+          if [ $MODEL_PULL_SUCCESS -eq 0 ]; then
+            echo "CRITICAL ERROR: Failed to pull model ${{ env.OLLAMA_MODEL }} after 5 attempts."
+            exit 1
+          fi
 
       - name: Run Email Agent
         id: run_agent
