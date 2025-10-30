@@ -9,9 +9,8 @@ on:
 jobs:
   run-email-agent:
     runs-on: ubuntu-latest
-    # 🚨 CRITICAL FIX: Set overall job timeout to 15 minutes. This is required because
-    # the Python script's LLM timeout is now 600 seconds (10 minutes).
-    timeout-minutes: 15 
+    # 🚨 INCREASE OVERALL JOB TIMEOUT to 20 minutes for maximum safety buffer.
+    timeout-minutes: 20
 
     services:
       # Define the Ollama service
@@ -26,7 +25,9 @@ jobs:
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
-
+          # 💡 OPTIMIZATION: Maximize resource usage for CPU-only inference
+          --env OLLAMA_NUM_THREAD=$(nproc) 
+          
     env:
       EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
       EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
@@ -34,8 +35,8 @@ jobs:
       SMTP_SERVER: smtp.gmail.com
       # CRITICAL FIX: Use localhost for the Python script to connect to the service
       OLLAMA_URL: http://localhost:11434/api/generate
-      # Using a verified model tag
-      OLLAMA_MODEL: mistral:7b-instruct-v0.2-q4_0
+      # 🚨 MODEL SWITCH: Using the smaller, CPU-optimized Phi-3 Mini model
+      OLLAMA_MODEL: phi3:3.8b-mini-4k-instruct-q4_1
       LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }} 
       PYTHONUNBUFFERED: 1
 
@@ -72,8 +73,8 @@ jobs:
             fi
           done
 
-      # Pull the Mistral model
-      - name: Pull Mistral Model
+      # Pull the Model
+      - name: Pull Phi-3 Model
         id: pull_model
         run: |
           echo "Waiting 5 seconds to ensure Ollama is fully ready..."
@@ -81,9 +82,10 @@ jobs:
           
           echo "Pulling model ${{ env.OLLAMA_MODEL }} (Max 5 attempts)..."
           
-          # 🚨 IMPROVEMENT: Use a loop for resilient model pulling
+          # Use a loop for resilient model pulling
           MODEL_PULL_SUCCESS=0
           for i in {1..5}; do
+            # Pull command is executed inside the ollama_service container
             docker exec ollama_service ollama pull ${{ env.OLLAMA_MODEL }}
             if [ $? -eq 0 ]; then
               echo "Model pull successful on attempt $i."
