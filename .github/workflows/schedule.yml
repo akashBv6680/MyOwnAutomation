@@ -38,7 +38,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
+      - name: Setup Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -50,7 +50,7 @@ jobs:
 
       - name: Wait for Ollama Service
         run: |
-          echo "Waiting up to 2 minutes for Ollama service health..."
+          echo "Waiting for Ollama service health..."
           for i in {1..24}; do
             if docker inspect --format='{{json .State.Health.Status}}' ollama_service | grep -q healthy; then
               echo "Ollama service is healthy!"
@@ -70,7 +70,7 @@ jobs:
           echo "Pulling model ${{ env.OLLAMA_MODEL }}..."
           docker exec ollama_service ollama pull ${{ env.OLLAMA_MODEL }}
 
-      - name: Warm-up Ollama
+      - name: Warm-up Ollama Model
         run: |
           curl http://localhost:11434/api/generate -d '{
             "model": "${{ env.OLLAMA_MODEL }}",
