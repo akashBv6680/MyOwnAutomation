@@ -2,14 +2,14 @@ name: Email Automation Scheduler
 
 on:
   schedule:
-    # Run every 5 minutes
+    # Run every 5 minutes (as specified in your original file)
     - cron: '*/5 * * * *'
   workflow_dispatch:
 
 jobs:
   run-email-agent:
     runs-on: ubuntu-latest
-    # Increased overall job timeout for LLM safety
+    # Increased overall job timeout to 20 minutes for maximum LLM safety buffer
     timeout-minutes: 20
 
     services:
@@ -19,11 +19,11 @@ jobs:
         ports:
           # Maps the container port 11434 to the runner's localhost port 11434
           - 11434:11434
-        # FIX: Use environment block for CPU thread setting
+        # 🟢 FIX: Use environment block for CPU thread setting (solves 'invalid reference format' error)
         environment:
           # OPTIMIZATION: Set OLLAMA_NUM_THREAD to maximize CPU usage
           OLLAMA_NUM_THREAD: $(nproc)
-        # FIX: Cleaned up options block
+        # 🟢 FIX: Cleaned up options block
         options: >-
           --name ollama_service
           --health-cmd="ollama -v"
@@ -38,7 +38,7 @@ jobs:
       SMTP_SERVER: smtp.gmail.com
       # Use localhost for the Python script to connect to the service
       OLLAMA_URL: http://localhost:11434/api/generate
-      # Using the smaller, CPU-optimized Phi-3 Mini model
+      # Using the smaller, CPU-optimized Phi-3 Mini model for speed
       OLLAMA_MODEL: phi3:3.8b-mini-4k-instruct-q4_1
       LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }} 
       PYTHONUNBUFFERED: 1
