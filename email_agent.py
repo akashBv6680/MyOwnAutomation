@@ -11,7 +11,7 @@ from email.message import EmailMessage
 
 # --- Configuration & Secrets ---
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/generate")
-LLM_MODEL = os.environ.get("OLLAMA_MODEL", "mistral:4b-instruct-q4_0")  # Update tag as needed!
+LLM_MODEL = os.environ.get("OLLAMA_MODEL", "mistral:7b-instruct-q4_0")
 EMAIL_ADDRESS = os.environ.get("EMAIL_ADDRESS")
 EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD") 
 SMTP_SERVER = "smtp.gmail.com"
@@ -107,7 +107,7 @@ def _run_ai_agent(email_data):
         "options": {
             "temperature": 0.3,
             "top_p": 0.9,
-            "num_predict": 192  # Medium size for 4B
+            "num_predict": 256
         }
     }
     headers = {'Content-Type': 'application/json'}
