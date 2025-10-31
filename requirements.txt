@@ -1,9 +1,1 @@
 requests
-airllm
-transformers==4.48.0
-sentencepiece
-accelerate
-optimum
-torch
-torchvision
-torchaudio
