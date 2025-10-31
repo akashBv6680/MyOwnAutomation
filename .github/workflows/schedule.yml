@@ -2,14 +2,14 @@ name: Email Automation Scheduler
 
 on:
   schedule:
-    # Runs every 15 minutes to allow more time for the larger model setup
-    - cron: '*/5 * * * *'
+    # Runs every 15 minutes to allow time for installation
+    - cron: '*/15 * * * *'
   workflow_dispatch:
 
 jobs:
   run-email-agent:
     runs-on: ubuntu-latest
-    timeout-minutes: 45 # Increased timeout for model download and setup
+    timeout-minutes: 45 # Generous timeout for a clean installation
 
     env:
       # --- General Email Secrets ---
@@ -27,14 +27,11 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          # Disable the default pip cache to ensure a clean install
-          cache: 'pip'
-          cache-dependency-path: '**/non-existent-file' # Invalid path to force a cache miss
 
-      - name: Force Clean Install of Dependencies
+      - name: Force Clean Install of All Dependencies
         run: |
           pip install --upgrade pip
-          # Install each package individually and force no-cache to prevent issues
+          # Use --no-cache-dir to ensure a fresh download and prevent conflicts
           pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
           pip install --no-cache-dir transformers==4.48.0
           pip install --no-cache-dir optimum
