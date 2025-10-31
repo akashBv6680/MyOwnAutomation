@@ -7,43 +7,38 @@ import json
 import re
 import time
 from email.message import EmailMessage
+import requests
 
-# --- AirLLM and Model Configuration ---
-# Ensure you have the necessary libraries installed: pip install airllm torch transformers sentencepiece accelerate
-# AirLLM will automatically handle the model loading.
-from airllm import AutoModel
-
-LLM_MODEL_NAME = "microsoft/Phi-3-mini-4k-instruct"
-
-# --- Email and Server Configuration ---
+# --- Configuration ---
+OLLAMA_URL = os.environ.get("OLLAMA_URL")
+LLM_MODEL = os.environ.get("LLM_MODEL")
 EMAIL_ADDRESS = os.environ.get("EMAIL_ADDRESS")
 EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 465
 IMAP_SERVER = "imap.gmail.com"
 
-# --- LLM Instructions and Schema ---
+# --- LLM Instructions ---
 DATA_SCIENCE_KNOWLEDGE = """
-You are a Senior Data Scientist specializing in ML, deep learning, model comparison, deployment (Streamlit), and RAG chatbot integration. When replying to technical or project inquiries, analyze the requirements, suggest relevant ML/deployment approaches (CNN, transfer learning, metrics, app & chatbot development), and propose next steps like dataset review or scheduling meetings.
+You are a Senior Data Scientist specializing in ML, deep learning, and RAG chatbots. Analyze technical inquiries and provide actionable advice.
 """
 
 AGENTIC_SYSTEM_INSTRUCTIONS = (
-    "You are Akash BV, Senior Data Scientist. For any email about ML, deep learning, Streamlit, RAG, or a project statement, you must reply with context-aware, actionable recommendations. Always analyze and summarize the inquiry, propose first steps, offer technical advice, and suggest further information or meetings. Sign your reply as 'Best regards,\\nAkash BV'."
+    "You are Akash BV, a Senior Data Scientist. Reply to technical emails with context-aware recommendations and sign off as 'Best regards,\\nAkash BV'."
 )
 
 RESPONSE_SCHEMA_JSON = {
-    "is_technical": "True if subject or body mentions ML, deep learning, project, model training, deployment, comparison, Streamlit, or RAG; False otherwise.",
-    "simple_reply_draft": "If technical, reply with specific advice (summarize client's goals, suggest appropriate ML methods, mention CNN for image classification, transfer learning, Streamlit for deployment, RAG for chatbots). Offer to review datasets and schedule a meeting.",
-    "non_technical_reply_draft": "If not technical, reply politely and invite the sender to share further details for technical/project advice.",
-    "request_meeting": "True if the inquiry shows intent for project work or next steps.",
-    "meeting_suggestion_draft": "Invite sender to a video call (Mon/Wed/Fri 2-5PM IST) for a deep-dive discussion."
+    "is_technical": "True if the email mentions ML, deep learning, or RAG projects.",
+    "simple_reply_draft": "For technical emails, provide specific advice and next steps.",
+    "non_technical_reply_draft": "For non-technical emails, reply politely.",
+    "request_meeting": "True if a meeting seems appropriate.",
+    "meeting_suggestion_draft": "Suggest a video call to discuss the project."
 }
 RESPONSE_SCHEMA_PROMPT = json.dumps(RESPONSE_SCHEMA_JSON, indent=2)
 
 
 def _send_smtp_email(to_email, subject, content):
     if not EMAIL_ADDRESS or not EMAIL_PASSWORD:
-        print("ERROR: Email credentials not available.")
         return False
     try:
         msg = EmailMessage()
@@ -55,7 +50,6 @@ def _send_smtp_email(to_email, subject, content):
         with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT, context=context) as server:
             server.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
             server.send_message(msg)
-        print("DEBUG: Sent email successfully.")
         return True
     except Exception as e:
         print(f"ERROR: Failed to send email: {e}")
@@ -64,20 +58,18 @@ def _send_smtp_email(to_email, subject, content):
 
 def _fetch_latest_unread_email():
     if not EMAIL_ADDRESS or not EMAIL_PASSWORD:
-        print("CRITICAL ERROR: Missing credentials.")
         return None, None, None
     try:
         mail = imaplib.IMAP4_SSL(IMAP_SERVER)
         mail.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
         mail.select("inbox")
-        status, data = mail.search(None, 'UNSEEN')
+        _, data = mail.search(None, 'UNSEEN')
         ids = data[0].split()
         if not ids:
-            print("STATUS: No unread emails.")
             return None, None, None
         latest_id = ids[-1]
         mail.store(latest_id, '+FLAGS', '\\Seen')
-        status, msg_data = mail.fetch(latest_id, "(RFC822)")
+        _, msg_data = mail.fetch(latest_id, "(RFC822)")
         raw_email = msg_data[0][1]
         email_message = email.message_from_bytes(raw_email)
         from_header = email_message.get("From", "")
@@ -87,14 +79,11 @@ def _fetch_latest_unread_email():
         body = ""
         if email_message.is_multipart():
             for part in email_message.walk():
-                ctype = part.get_content_type()
-                cdispo = str(part.get("Content-Disposition"))
-                if ctype == "text/plain" and "attachment" not in cdispo:
+                if part.get_content_type() == "text/plain":
                     body = part.get_payload(decode=True).decode()
                     break
         else:
             body = email_message.get_payload(decode=True).decode()
-        print(f"DEBUG: Email from {from_email}, subject: {subject}.")
         return from_email, subject, body
     except Exception as e:
         print(f"ERROR: Failed to fetch email: {e}")
@@ -102,52 +91,25 @@ def _fetch_latest_unread_email():
 
 
 def _run_ai_agent(email_data):
+    prompt = (
+        f"{AGENTIC_SYSTEM_INSTRUCTIONS}\nKnowledge: {DATA_SCIENCE_KNOWLEDGE}\n"
+        f"EMAIL SUBJECT: {email_data['subject']}\nEMAIL BODY: {email_data['body']}\n"
+        f"Reply using this JSON schema:\n{RESPONSE_SCHEMA_PROMPT}"
+    )
+    payload = {
+        "model": LLM_MODEL,
+        "prompt": prompt,
+        "stream": False
+    }
     try:
-        print("Initializing AirLLM with model:", LLM_MODEL_NAME)
-        # Use AutoModel to let AirLLM handle the model type automatically
-        model = AutoModel.from_pretrained(LLM_MODEL_NAME)
-
-        prompt = (
-            f"<|system|>\n{AGENTIC_SYSTEM_INSTRUCTIONS}\n{DATA_SCIENCE_KNOWLEDGE}\n"
-            f"You must respond in a valid JSON format according to the following schema:\n{RESPONSE_SCHEMA_PROMPT}\n<|end|>\n"
-            f"<|user|>\n"
-            f"Here is the email you need to process:\n"
-            f"FROM: {email_data['from_email']}\n"
-            f"SUBJECT: {email_data['subject']}\n"
-            f"BODY: {email_data['body']}\n<|end|>\n"
-            f"<|assistant|>\n"
-        )
-
-        input_tokens = model.tokenizer(
-            [prompt],
-            return_tensors="pt",
-            return_attention_mask=False,
-            truncation=True,
-            max_length=2048,
-            padding=False
-        )
-
-        print("Generating response with AirLLM...")
-        # Note: .cuda() is removed as GitHub Actions runners are CPU-only
-        generation_output = model.generate(
-            input_tokens['input_ids'],
-            max_new_tokens=512,
-            use_cache=True,
-            return_dict_in_generate=True
-        )
-
-        response_text = model.tokenizer.decode(generation_output.sequences[0])
-
-        # Extract JSON from the generated text
-        json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
-        if json_match:
-            return json.loads(json_match.group(0))
-        else:
-            print("ERROR: No JSON found in AirLLM response.")
-            return None
-
-    except Exception as e:
-        print(f"ERROR: AirLLM request failed: {e}")
+        response = requests.post(OLLAMA_URL, json=payload, timeout=300)
+        response.raise_for_status()
+        response_json = response.json()
+        # The actual JSON content is a string within the 'response' key
+        ai_response_str = response_json.get('response', '{}')
+        return json.loads(ai_response_str)
+    except (requests.RequestException, json.JSONDecodeError) as e:
+        print(f"ERROR: AI request failed: {e}")
         return None
 
 
@@ -162,14 +124,12 @@ def main_agent_workflow():
     ai_output = _run_ai_agent(email_data)
 
     if not ai_output:
-        print("ERROR: AI failed (timeout/resource); no reply sent.")
+        print("ERROR: AI failed; no reply sent.")
         return
 
     is_technical = ai_output.get("is_technical", False)
     request_meeting = ai_output.get("request_meeting", False)
-
-    print(f"RESULT: Technical? {is_technical} | Meeting? {request_meeting}")
-
+    
     final_subject = f"Re: {subject}"
     if is_technical:
         reply_draft = ai_output.get("meeting_suggestion_draft") if request_meeting else ai_output.get("simple_reply_draft")
@@ -178,11 +138,6 @@ def main_agent_workflow():
 
     if not reply_draft:
         reply_draft = "Thank you for your message. We will get back to you shortly."
-
-    reply_draft = re.sub(r'<[^>]+>', '', str(reply_draft)).strip()
-
-    if not reply_draft.lower().startswith(("hello", "hi", "thank you")):
-        reply_draft = f"Hello,\n\n{reply_draft}"
 
     print("ACTION: Sending reply...")
     if _send_smtp_email(from_email, final_subject, reply_draft):
