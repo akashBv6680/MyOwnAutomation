@@ -31,16 +31,24 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Cache Hugging Face models
-        uses: actions/cache@v4
-        id: hf-cache
+      - name: Clear Caches
+        uses: actions/github-script@v6
         with:
-          path: ${{ env.HF_HOME }}
-          # Use the requirements.txt hash as part of the cache key
-          key: ${{ runner.os }}-huggingface-models-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-huggingface-models-
-
+          script: |
+            const caches = await github.rest.actions.getActionsCacheList({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            })
+            for (const cache of caches.data.actions_caches) {
+              if (cache.key.startsWith('Linux-huggingface-models-') || cache.key.startsWith('Linux-pip-')) {
+                await github.rest.actions.deleteActionsCacheById({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  cache_id: cache.id,
+                })
+              }
+            }
+          
       - name: Install Dependencies from requirements.txt
         run: |
           pip install --upgrade pip
@@ -48,6 +56,15 @@ jobs:
           pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
           # Then, install all other packages from the requirements file
           pip install -r requirements.txt
+
+      - name: Verify Installation
+        run: |
+          echo "--- Verifying installed packages ---"
+          pip list
+          echo "------------------------------------"
+          echo "Checking for 'optimum' package..."
+          pip show optimum
+          echo "------------------------------------"
 
       - name: Run Email Agent with AirLLM
         run: |
