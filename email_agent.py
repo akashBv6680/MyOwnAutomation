@@ -102,10 +102,10 @@ def _run_ai_agent(email_data):
         "stream": False
     }
     try:
-        response = requests.post(OLLAMA_URL, json=payload, timeout=300)
+        # CRITICAL FIX: Increased timeout to 900 seconds (15 minutes)
+        response = requests.post(OLLAMA_URL, json=payload, timeout=900)
         response.raise_for_status()
         response_json = response.json()
-        # The actual JSON content is a string within the 'response' key
         ai_response_str = response_json.get('response', '{}')
         return json.loads(ai_response_str)
     except (requests.RequestException, json.JSONDecodeError) as e:
